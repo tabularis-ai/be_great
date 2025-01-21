@@ -1,3 +1,4 @@
+from typing import List
 import warnings
 import json
 import typing as tp
@@ -59,6 +60,7 @@ class GReaT:
         experiment_dir: str = "trainer_great",
         epochs: int = 100,
         batch_size: int = 8,
+        target_modules : List[str] = None,
         efficient_finetuning: str = "",
         **train_kwargs,
     ):
@@ -95,13 +97,17 @@ class GReaT:
                     "This function requires the 'peft' package. Please install it with - pip install peft==0.9.0"
                 )
 
+            if not target_modules:
+                target_modules = []                
+                for name, module in self.model.named_modules():
+                    if isinstance(module, (torch.nn.Linear, torch.nn.Embedding, torch.nn.Conv2d)):
+                        target_modules.append('.'.join(name.split('.')[4:]).split('.')[0])
+                
             # Define LoRA Config
             lora_config = LoraConfig(
                 r=16,  # only training 0.16% of the parameters of the model
                 lora_alpha=32,
-                target_modules=[
-                    "c_attn"
-                ],  # this is specific for gpt2 model, to be adapted
+                target_modules=target_modules,
                 lora_dropout=0.05,
                 bias="none",
                 task_type=TaskType.CAUSAL_LM,  # this is specific for gpt2 model, to be adapted
