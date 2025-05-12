@@ -14,3 +14,5 @@ examples/trainer_*
 ../testing/
 
 be_great.egg-info/
+
+../be_great.egg-info/
