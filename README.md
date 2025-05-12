@@ -83,6 +83,7 @@ If you use GReaT, please link or cite our work:
 }
 ```
 
-## GReaT Acknowledgements
+## Custom Synthetic Data
 
-We sincerely thank the [HuggingFace](https://huggingface.co/) :hugs: framework. 
+Need synthetic data for your business? We can help!
+Contact us at info@tabularis.ai for custom data generation services.

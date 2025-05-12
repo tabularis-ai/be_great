@@ -194,7 +194,7 @@ class GReaT:
         max_length: int = 100,
         drop_nan: bool = False,
         device: str = "cuda",
-        guided_sampling: bool = True,
+        guided_sampling: bool = False,
         random_feature_order: bool = True,
     ) -> pd.DataFrame:
         """
@@ -215,6 +215,7 @@ class GReaT:
             drop_nan (bool): Whether to drop rows with NaN values. Defaults to False.
             device (str): Device to use for generation. Set to "cpu" to avoid using GPU. Specific GPU can also be named.
             guided_sampling (bool): Whether to use guided feature-by-feature sampling (True) or the legacy approach (False).
+                Note that guided sampling may be slower but can be more reliable for certain datasets.
             random_feature_order (bool): Whether to randomize feature order for each sample in guided sampling.
 
         Returns:
@@ -501,26 +502,41 @@ class GReaT:
                     # Check if we are actually generating synthetic samples and if not, break everything
                     _cnt += 1
                     if _cnt > 13 and already_generated == 0:
+                        print(f"{bcolors.WARNING}Unable to generate samples after {_cnt} attempts.{bcolors.ENDC}")
+                        print(f"{bcolors.WARNING}To address this issue, consider using guided_sampling=True, which uses a different generation approach that may be more reliable, although it might be much slower.{bcolors.ENDC}")
+                        print(f"{bcolors.WARNING}Example: model.sample(n_samples=10, guided_sampling=True){bcolors.ENDC}")
                         raise Exception("Breaking the generation loop!")
 
             except Exception as e:
                 print(f"{bcolors.FAIL}An error has occurred: {str(e)}{bcolors.ENDC}")
                 print(
-                    f"{bcolors.WARNING}To address this issue, consider fine-tuning the GReaT model for an longer period. This can be achieved by increasing the number of epochs.{bcolors.ENDC}"
+                    f"{bcolors.WARNING}To address this issue, consider fine-tuning the GReaT model for a longer period. This can be achieved by increasing the number of epochs.{bcolors.ENDC}"
                 )
                 print(
                     f"{bcolors.WARNING}Alternatively, you might consider increasing the max_length parameter within the sample function. For example: model.sample(n_samples=10, max_length=2000){bcolors.ENDC}"
                 )
-                print(
-                    f"{bcolors.WARNING}You can also try using guided_sampling=True, which uses a different generation approach that may be more reliable.{bcolors.ENDC}"
-                )
+                
+                # Only suggest guided_sampling if we've tried multiple times without success
+                if _cnt > 13 and already_generated == 0:
+                    print(
+                        f"{bcolors.WARNING}You can also try using guided_sampling=True, which uses a different generation approach that may be more reliable, although it might be slower. For example: model.sample(n_samples=10, guided_sampling=True){bcolors.ENDC}"
+                    )
+                
                 print(
                     f"{bcolors.OKBLUE}If the problem persists despite these adjustments, feel free to raise an issue on our GitHub page at: https://github.com/kathrinse/be_great/issues{bcolors.ENDC}"
                 )
 
-        df_gen = pd.concat(dfs)
-        df_gen = df_gen.reset_index(drop=True)
-        return df_gen.head(n_samples)
+        # If we have generated at least some samples, return them
+        if dfs:
+            df_gen = pd.concat(dfs)
+            df_gen = df_gen.reset_index(drop=True)
+            return df_gen.head(n_samples)
+        else:
+            # If we couldn't generate any samples with legacy sampling, suggest trying guided sampling
+            print(
+                f"{bcolors.WARNING}No samples could be generated. Consider trying guided_sampling=True, which uses a different generation approach that may be more reliable, although it might be slower.{bcolors.ENDC}"
+            )
+            return pd.DataFrame(columns=self.columns)
 
     def great_sample(
         self,
