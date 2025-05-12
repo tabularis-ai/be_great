@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "be_great"
-version = "0.0.8"
+version = "0.0.9"
 authors = [
   { name="Kathrin Sessler", email="kathrin.sessler@tum.de" },
-  { name="Vadim Borisov", email="vadim.borisov@uni-tuebingen.de"},
+  { name="Vadim Borisov", email="vadim@tabularis.ai"},
 ]
 description = "Generating Realistic Tabular Data using Large Language Models"
 readme = "README.md"
@@ -31,8 +31,8 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/kathrinse/be_great"
-"Documentation" = "https://kathrinse.github.io/be_great/"
+"Homepage" = "https://github.com/tabularis-ai/be_great"
+"Documentation" = "https://tabularis-ai.github.io/be_great/"
 
 [tool.setuptools]
 packages = ["be_great"]

@@ -2,6 +2,8 @@ import warnings
 import json
 import typing as tp
 import logging
+import re
+import random
 
 import fsspec
 import numpy as np
@@ -60,6 +62,7 @@ class GReaT:
         epochs: int = 100,
         batch_size: int = 8,
         efficient_finetuning: str = "",
+        float_precision: tp.Optional[int] = None,
         **train_kwargs,
     ):
         """Initializes GReaT.
@@ -70,6 +73,7 @@ class GReaT:
             epochs: Number of epochs to fine-tune the model
             batch_size: Batch size used for fine-tuning
             efficient_finetuning: Indication of fune-tuning method
+            float_precision: Number of decimal places to use for floating point numbers. If None, full precision is used.
             train_kwargs: Additional hyperparameters added to the TrainingArguments used by the HuggingFaceLibrary,
              see here the full list of all possible values
              https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments
@@ -124,6 +128,9 @@ class GReaT:
         self.conditional_col = None
         self.conditional_col_dist = None
 
+        # Store float precision setting
+        self.float_precision = float_precision
+
     def fit(
         self,
         data: tp.Union[pd.DataFrame, np.ndarray],
@@ -152,7 +159,7 @@ class GReaT:
         # Convert DataFrame into HuggingFace dataset object
         logging.info("Convert data into HuggingFace dataset object...")
         great_ds = GReaTDataset.from_pandas(df)
-        great_ds.set_tokenizer(self.tokenizer)
+        great_ds.set_tokenizer(self.tokenizer, self.float_precision)
 
         # Set training hyperparameters
         logging.info("Create GReaT Trainer...")
@@ -185,9 +192,231 @@ class GReaT:
         max_length: int = 100,
         drop_nan: bool = False,
         device: str = "cuda",
+        guided_sampling: bool = True,
+        random_feature_order: bool = True,
     ) -> pd.DataFrame:
         """
         Generate synthetic tabular data samples.
+
+        Args:
+            n_samples (int): Number of synthetic samples to generate.
+            start_col (str, optional): Feature to use as the starting point for the generation process.
+                Defaults to the target learned during fitting if not provided.
+            start_col_dist (dict or list, optional): Feature distribution of the starting feature.
+                For discrete columns, should be in the format "{F1: p1, F2: p2, ...}".
+                For continuous columns, should be a list of possible values.
+                Defaults to the target distribution learned during fitting if not provided.
+            temperature (float): Controls the softmax function for token sampling.
+                Lower values make it sharper (0 equals greedy search), higher values introduce more diversity but also uncertainty.
+            k (int): Sampling batch size. Higher values speed up the generation process.
+            max_length (int): Maximum number of tokens to generate. Ensure it's long enough to not cut off any information.
+            drop_nan (bool): Whether to drop rows with NaN values. Defaults to False.
+            device (str): Device to use for generation. Set to "cpu" to avoid using GPU. Specific GPU can also be named.
+            guided_sampling (bool): Whether to use guided feature-by-feature sampling (True) or the legacy approach (False).
+            random_feature_order (bool): Whether to randomize feature order for each sample in guided sampling.
+
+        Returns:
+            pd.DataFrame: DataFrame containing n_samples rows of generated data.
+        """
+        # Choose the sampling method
+        if guided_sampling:
+            return self._guided_sample(
+                n_samples=n_samples,
+                temperature=temperature,
+                max_length=max_length,
+                device=device,
+                random_feature_order=random_feature_order,
+            )
+        else:
+            return self._legacy_sample(
+                n_samples=n_samples,
+                start_col=start_col,
+                start_col_dist=start_col_dist,
+                temperature=temperature,
+                k=k,
+                max_length=max_length,
+                drop_nan=drop_nan,
+                device=device,
+            )
+
+    def _guided_sample(
+        self,
+        n_samples: int = 10,
+        temperature: float = 0.7,
+        max_length: int = 100,
+        device: str = "cuda",
+        random_feature_order: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Generate synthetic data with guided feature name prompting.
+        
+        Args:
+            n_samples (int): Number of samples to generate
+            temperature (float): Temperature for sampling
+            max_length (int): Maximum length of generated tokens
+            device (str): Device to use for generation
+            random_feature_order (bool): Whether to randomize feature order for each sample
+            
+        Returns:
+            pd.DataFrame: Synthetic data with original column names
+        """
+        if self.columns is None:
+            raise ValueError("Model has not been fitted yet. Please call fit() first.")
+        
+        # Extract known categorical values - if we can find original distributions
+        categorical_values = {}
+        cat_cols = [col for col in self.columns if col.startswith('cat_')]
+        
+        # Try to infer categorical values from distributions
+        for col in cat_cols:
+            if col == self.conditional_col and isinstance(self.conditional_col_dist, dict):
+                categorical_values[col] = list(self.conditional_col_dist.keys())
+        
+        # Make sure we're in eval mode and use the specified device
+        self.model.to(device)
+        self.device = torch.device(device)
+        self.model.eval()
+        
+        synthetic_data = []
+        
+        for i in range(n_samples):
+            try:
+                # Get feature names
+                feature_names = self.columns.copy()
+                
+                # Randomize feature order if requested
+                if random_feature_order:
+                    random.shuffle(feature_names)
+                
+                # Start with empty sample
+                sample_text = ""
+                sample_values = {}
+                
+                # For each feature
+                for feature in feature_names:
+                    # Create prompt with feature name
+                    prompt = f"{sample_text}{feature} is"
+                    
+                    # Generate only the value (not the next feature name)
+                    inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+                    
+                    # Generate until semicolon or max_length
+                    try:
+                        # Check if semicolon is in vocabulary
+                        semicolon_token = self.tokenizer.encode(";")[0] if ";" in self.tokenizer.decode(list(range(1000))) else None
+                        
+                        output = self.model.generate(
+                            inputs["input_ids"],
+                            max_length=len(inputs["input_ids"][0]) + 30,  # Shorter segment - limit to 30 tokens
+                            temperature=temperature,
+                            pad_token_id=self.tokenizer.eos_token_id,
+                            eos_token_id=semicolon_token,
+                            do_sample=True
+                        )
+                    except:
+                        # If semicolon token doesn't work, generate with length limit
+                        output = self.model.generate(
+                            inputs["input_ids"],
+                            max_length=len(inputs["input_ids"][0]) + 30,  # Shorter segment - limit to 30 tokens
+                            temperature=temperature,
+                            pad_token_id=self.tokenizer.eos_token_id,
+                            do_sample=True
+                        )
+                    
+                    # Extract the generated value
+                    generated_text = self.tokenizer.decode(output[0], skip_special_tokens=True)
+                    raw_value = generated_text[len(prompt):].strip()
+                    
+                    # Clean up the value (improved parsing)
+                    # First check for semicolon
+                    if ";" in raw_value:
+                        value = raw_value.split(";")[0].strip()
+                    else:
+                        # Split on common delimiters and take the first valid token
+                        # Try different delimiters in order of preference
+                        for delimiter in [",", ".", "\n", " "]:
+                            if delimiter in raw_value:
+                                value = raw_value.split(delimiter)[0].strip()
+                                break
+                        else:
+                            # If no delimiters found, use the whole string but truncate if too long
+                            value = raw_value[:30].strip()
+                    
+                    # Clean up any trailing non-alphanumeric characters
+                    while value and not (value[-1].isalnum() or value[-1] in ['.', '-']):
+                        value = value[:-1]
+                    
+                    if feature in self.num_cols:
+                        # Try to extract a number if this is a numerical column
+                        numeric_match = re.search(r'-?\d+\.?\d*', value)
+                        if numeric_match:
+                            value = numeric_match.group(0)
+                    elif feature in cat_cols:
+                        # For categorical columns, try to match one of the known values
+                        if feature in categorical_values:
+                            valid_cats = categorical_values[feature]
+                            # First try direct match
+                            matched = False
+                            for cat in valid_cats:
+                                if cat.lower() == value.lower():
+                                    value = cat  # Use the proper case from the original
+                                    matched = True
+                                    break
+                            
+                            # If no direct match, try to find a valid category in the text
+                            if not matched:
+                                for cat in valid_cats:
+                                    if cat.lower() in value.lower():
+                                        value = cat  # Use the proper case from the original
+                                        matched = True
+                                        break
+                    
+                    # Store the value
+                    sample_values[feature] = value
+                    
+                    # Update sample text for context in next iteration
+                    sample_text += f"{feature} is {value}; "
+                
+                # Create a dictionary with all features in original order
+                ordered_sample = {feature: sample_values.get(feature, "") for feature in self.columns}
+                synthetic_data.append(ordered_sample)
+                
+                if i % 5 == 0 or i == n_samples - 1:
+                    print(f"Generated sample {i+1}/{n_samples}")
+                
+            except Exception as e:
+                print(f"Error generating sample {i+1}: {str(e)}")
+                continue
+        
+        # Convert to DataFrame
+        if synthetic_data:
+            df = pd.DataFrame(synthetic_data)
+            
+            # Convert numerical columns to float if possible
+            for col in self.num_cols:
+                try:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                except:
+                    print(f"Warning: Could not convert column {col} to numeric")
+            
+            return df.head(n_samples)  # Return exactly n_samples rows
+        else:
+            print("Failed to generate any valid samples.")
+            return pd.DataFrame(columns=self.columns)
+
+    def _legacy_sample(
+        self,
+        n_samples: int,
+        start_col: tp.Optional[str] = "",
+        start_col_dist: tp.Optional[tp.Union[dict, list]] = None,
+        temperature: float = 0.7,
+        k: int = 100,
+        max_length: int = 100,
+        drop_nan: bool = False,
+        device: str = "cuda",
+    ) -> pd.DataFrame:
+        """
+        Legacy method for generating synthetic tabular data samples.
 
         Args:
             n_samples (int): Number of synthetic samples to generate.
@@ -277,6 +506,9 @@ class GReaT:
                 )
                 print(
                     f"{bcolors.WARNING}Alternatively, you might consider increasing the max_length parameter within the sample function. For example: model.sample(n_samples=10, max_length=2000){bcolors.ENDC}"
+                )
+                print(
+                    f"{bcolors.WARNING}You can also try using guided_sampling=True, which uses a different generation approach that may be more reliable.{bcolors.ENDC}"
                 )
                 print(
                     f"{bcolors.OKBLUE}If the problem persists despite these adjustments, feel free to raise an issue on our GitHub page at: https://github.com/kathrinse/be_great/issues{bcolors.ENDC}"
@@ -391,7 +623,7 @@ class GReaT:
                     num_attrs_missing = pd.isna(df_curr).sum().sum()
                     # print("Number of missing values: ",  num_attrs_missing)
                     # Generate text promt from current features.
-                    starting_prompts = _partial_df_to_promts(df_curr)
+                    starting_prompts = _partial_df_to_promts(df_curr, self.float_precision)
                     df_curr = self.great_sample(
                         starting_prompts, temperature, max_length, device=device
                     )

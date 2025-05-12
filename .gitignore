@@ -8,3 +8,7 @@ __pycache__
 
 examples/iris*
 examples/trainer_*
+
+.DS_Store
+
+../testing/

@@ -114,27 +114,39 @@ def _convert_text_to_tabular_data(
     return df_gen
 
 
-def _encode_row_partial(row, shuffle=True):
-    """Function that takes a row and converts all columns into the text representation that are not NaN."""
+def _encode_row_partial(row, shuffle=True, float_precision=None):
+    """Function that takes a row and converts all columns into the text representation that are not NaN.
+    
+    Args:
+        row: Pandas Series row
+        shuffle: Whether to shuffle the order of columns
+        float_precision: Number of decimal places to use for floating point numbers. If None, full precision is used.
+    
+    Returns:
+        String representation of the row with 'column is value' format
+    """
     num_cols = len(row.index)
     if not shuffle:
         idx_list = np.arange(num_cols)
     else:
         idx_list = np.random.permutation(num_cols)
 
-    lists = ", ".join(
-        sum(
-            [
-                [f"{row.index[i]} is {row[row.index[i]]}"]
-                if not pd.isna(row[row.index[i]])
-                else []
-                for i in idx_list
-            ],
-            [],
-        )
-    )
-    return lists
-    # Now append first NaN attribute
+    parts = []
+    for i in idx_list:
+        value = row[row.index[i]]
+        if not pd.isna(value):
+            col_name = row.index[i]
+            if isinstance(value, (float, np.floating)) and float_precision is not None:
+                # Format to a string with specified decimal places, removing trailing zeros
+                formatted_value_str = f"{value:.{float_precision}f}"
+                if '.' in formatted_value_str:
+                    formatted_value_str = formatted_value_str.rstrip('0').rstrip('.')
+                final_value_representation = formatted_value_str
+            else:
+                final_value_representation = value
+            parts.append(f"{col_name} is {final_value_representation}")
+
+    return ", ".join(parts)
 
 
 def _get_random_missing(row):
@@ -143,15 +155,16 @@ def _get_random_missing(row):
     return np.random.choice(nans) if len(nans) > 0 else None
 
 
-def _partial_df_to_promts(partial_df: pd.DataFrame):
+def _partial_df_to_promts(partial_df: pd.DataFrame, float_precision=None):
     """Convert DataFrame with missingvalues to a list of starting promts for GReaT
         Args:
         partial_df: Pandas DataFrame to be imputed where missing values are encoded by NaN.
+        float_precision: Number of decimal places to use for floating point numbers. If None, full precision is used.
 
     Returns:
         List of strings with the starting prompt for each sample.
     """
-    encoder = lambda x: _encode_row_partial(x, True)
+    encoder = lambda x: _encode_row_partial(x, True, float_precision)
     res_encode = list(partial_df.apply(encoder, axis=1))
     res_first = list(partial_df.apply(_get_random_missing, axis=1))
 
