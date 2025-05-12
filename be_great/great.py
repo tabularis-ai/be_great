@@ -63,6 +63,7 @@ class GReaT:
         batch_size: int = 8,
         efficient_finetuning: str = "",
         float_precision: tp.Optional[int] = None,
+        report_to: tp.List[str] = [],
         **train_kwargs,
     ):
         """Initializes GReaT.
@@ -74,6 +75,7 @@ class GReaT:
             batch_size: Batch size used for fine-tuning
             efficient_finetuning: Indication of fune-tuning method
             float_precision: Number of decimal places to use for floating point numbers. If None, full precision is used.
+            report_to: List of integrations to report to. Empty list means no reporting (disable Weights & Biases).
             train_kwargs: Additional hyperparameters added to the TrainingArguments used by the HuggingFaceLibrary,
              see here the full list of all possible values
              https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments
@@ -120,7 +122,7 @@ class GReaT:
         self.experiment_dir = experiment_dir
         self.epochs = epochs
         self.batch_size = batch_size
-        self.train_hyperparameters = train_kwargs
+        self.train_hyperparameters = {"report_to": report_to, **train_kwargs}
 
         # Needed for the sampling process
         self.columns = None
