@@ -503,8 +503,8 @@ class GReaT:
                     _cnt += 1
                     if _cnt > 13 and already_generated == 0:
                         print(f"{bcolors.WARNING}Unable to generate samples after {_cnt} attempts.{bcolors.ENDC}")
-                        print(f"{bcolors.WARNING}To address this issue, consider using guided_sampling=True, which uses a different generation approach that may be more reliable, although it might be much slower.{bcolors.ENDC}")
-                        print(f"{bcolors.WARNING}Example: model.sample(n_samples=10, guided_sampling=True){bcolors.ENDC}")
+                        print(f"{bcolors.OKBLUE}To address this issue, consider using guided_sampling=True, which uses a different generation approach that may be more reliable, although it might be much slower.{bcolors.ENDC}")
+                        print(f"{bcolors.OKBLUE}Example: model.sample(n_samples=10, guided_sampling=True){bcolors.ENDC}")
                         raise Exception("Breaking the generation loop!")
 
             except Exception as e:
