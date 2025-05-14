@@ -12,7 +12,7 @@ import pandas as pd
 from tqdm import tqdm
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments
+from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, TrainerCallback
 
 from be_great.great_dataset import GReaTDataset, GReaTDataCollator
 from be_great.great_start import (
@@ -31,6 +31,22 @@ from be_great.great_utils import (
     _partial_df_to_promts,
     bcolors,
 )
+
+
+class RandomConditionalColumnCallback(TrainerCallback):
+    """Callback to randomly change the conditional column after each epoch."""
+    
+    def __init__(self, model, dataframe):
+        self.model = model
+        self.dataframe = dataframe
+        
+    def on_epoch_end(self, args, state, control, **kwargs):
+        """Randomly change the conditional column at the end of each epoch."""
+        # Choose a random column and update conditional information
+        random_column = random.choice(self.model.columns)
+        self.model._update_conditional_information(self.dataframe, random_column)
+        logging.info(f"Changed conditional column to: {random_column}")
+        return control
 
 
 class GReaT:
@@ -139,6 +155,7 @@ class GReaT:
         column_names: tp.Optional[tp.List[str]] = None,
         conditional_col: tp.Optional[str] = None,
         resume_from_checkpoint: tp.Union[bool, str] = False,
+        random_conditional_col: bool = True,
     ) -> GReaTTrainer:
         """Fine-tune GReaT using tabular data.
 
@@ -150,6 +167,8 @@ class GReaT:
             point for the generation process later. If None, the last column is considered as conditional feature
             resume_from_checkpoint: If True, resumes training from the latest checkpoint in the experiment_dir.
             If path, resumes the training from the given checkpoint (has to be a valid HuggingFace checkpoint!)
+            random_conditional_col: If True, a different random column will be selected for preconditioning
+            in each epoch. This helps prevent any single column from being overfitted during training.
 
         Returns:
             GReaTTrainer used for the fine-tuning process
@@ -171,12 +190,20 @@ class GReaT:
             per_device_train_batch_size=self.batch_size,
             **self.train_hyperparameters,
         )
+        
+        # Set up callbacks
+        callbacks = []
+        if random_conditional_col:
+            logging.info("Random conditional column enabled. Will randomly select a different column for each epoch.")
+            callbacks.append(RandomConditionalColumnCallback(self, df))
+        
         great_trainer = GReaTTrainer(
             self.model,
             training_args,
             train_dataset=great_ds,
             tokenizer=self.tokenizer,
             data_collator=GReaTDataCollator(self.tokenizer),
+            callbacks=callbacks,
         )
 
         # Start training
