@@ -680,7 +680,7 @@ class GReaT:
                         df_curr[i_num_cols] = pd.to_numeric(
                             df_curr[i_num_cols], errors="coerce"
                         )
-                    df_curr[self.num_cols] = df_curr[self.num_cols].astype(np.float)
+                    df_curr[self.num_cols] = df_curr[self.num_cols].astype(np.float64)
 
                     # Check for missing values
                     nans = df_curr.isna()
