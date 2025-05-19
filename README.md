@@ -1,19 +1,24 @@
-[![PyPI version](https://badge.fury.io/py/be-great.svg)](https://badge.fury.io/py/be-great) [![Downloads](https://static.pepy.tech/badge/be-great)](https://pepy.tech/project/be-great)
+<div align="center">
+  <picture>
+    <img alt="GReaT Logo" src="https://github.com/tabularis-ai/be_great/raw/main/imgs/GReaT_logo.png" width="365">
+  </picture>
+</div>
+
+<h3 align="center">Generation of Realistic Tabular data</h3>
+<p align="center">with pretrained Transformer-based language models</p>
 
 <p align="center">
-  <img src="https://github.com/tabularis-ai/be_great/raw/main/imgs/GReaT_logo.png" width="600"/>
+  <a href="https://pypi.org/project/be-great/">
+    <img alt="PyPI" src="https://badge.fury.io/py/be-great.svg">
+  </a>
+  <a href="https://pepy.tech/project/be-great">
+    <img alt="Downloads" src="https://static.pepy.tech/badge/be-great">
+  </a>
 </p>
 
-<p align="center">
-<strong>Generation of Realistic Tabular data</strong>
-<br> with pretrained Transformer-based language models
-</p>
+Our GReaT framework leverages the power of advanced pretrained Transformer language models to produce high-quality synthetic tabular data. Generate new data samples effortlessly with our user-friendly API in just a few lines of code. Please see our [publication](YOUR_PUBLICATION_LINK) for more details.
 
 &nbsp;
-&nbsp;
-&nbsp;
-
-Our GReaT framework leverages the power of advanced pretrained Transformer language models to produce high-quality synthetic tabular data. Generate new data samples effortlessly with our user-friendly API in just a few lines of code. Please see our [publication](https://openreview.net/forum?id=cEygmQNOeI) for more details. 
 
 ## GReaT Installation
 
