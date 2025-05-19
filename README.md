@@ -1,7 +1,7 @@
 [![PyPI version](https://badge.fury.io/py/be-great.svg)](https://badge.fury.io/py/be-great) [![Downloads](https://static.pepy.tech/badge/be-great)](https://pepy.tech/project/be-great)
 
 <p align="center">
-  <img src="https://github.com/tabularis-ai/be_great/raw/main/imgs/GReaT_logo.png" width="326"/>
+  <img src="https://github.com/tabularis-ai/be_great/raw/main/imgs/GReaT_logo.png" width="600"/>
 </p>
 
 <p align="center">
