@@ -98,8 +98,6 @@ The `guided_sampling=True` parameter enables a feature-by-feature generation app
 
 The `float_precision` parameter limits decimal places in numerical values, which can help the model focus on significant patterns rather than memorizing exact values. This is particularly helpful for small datasets where overfitting is a concern.
 
-The `fp16=True` parameter enables half-precision floating-point training, which speeds up model training and reduces memory consumption, allowing you to use larger batch sizes or train more complex models even with limited resources.
-
 ## GReaT Citation 
 
 If you use GReaT, please link or cite our work:
