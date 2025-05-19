@@ -70,6 +70,36 @@ model.save("s3://my_bucket")
 model = GReaT.load_from_dir("s3://my_bucket")
 ```
 
+## Optimizing GReaT for Challenging Datasets
+
+When working with small datasets or datasets with many features, GReaT offers specialized parameters to improve generation quality:
+
+```python
+# For small datasets or datasets with many features
+model = GReaT(
+    llm='distilgpt2',
+    float_precision=3,  # Limit floating-point precision to 3 decimal places
+    batch_size=8,       # Use smaller batch size for small datasets
+    epochs=100,         # Train for more epochs with small data
+    fp16=True           # Enable half-precision training for faster computation and lower memory usage
+)
+model.fit(data)
+
+# Use guided sampling for higher quality generation with complex feature sets
+synthetic_data = model.sample(
+    n_samples=100,
+    guided_sampling=True,     # Enable feature-by-feature guided generation
+    random_feature_order=True,  # Randomize feature order to avoid bias
+    temperature=0.7           # Control diversity of generated values
+)
+```
+
+The `guided_sampling=True` parameter enables a feature-by-feature generation approach, which can produce more reliable results for datasets with many features or complex relationships. While potentially slower than the default sampling method, it can help overcome generation challenges with difficult datasets.
+
+The `float_precision` parameter limits decimal places in numerical values, which can help the model focus on significant patterns rather than memorizing exact values. This is particularly helpful for small datasets where overfitting is a concern.
+
+The `fp16=True` parameter enables half-precision floating-point training, which speeds up model training and reduces memory consumption, allowing you to use larger batch sizes or train more complex models even with limited resources.
+
 ## GReaT Citation 
 
 If you use GReaT, please link or cite our work:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "be_great"
-version = "0.0.9"
+version = "0.0.10"
 authors = [
   { name="Kathrin Sessler", email="kathrin.sessler@tum.de" },
   { name="Vadim Borisov", email="vadim@tabularis.ai"},
