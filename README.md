@@ -14,6 +14,9 @@
   <a href="https://pepy.tech/project/be-great">
     <img alt="Downloads" src="https://static.pepy.tech/badge/be-great">
   </a>
+  <a href="https://discord.com/channels/1310217643520819251/1434507060141359134">
+    <img alt="Discord" src="https://img.shields.io/discord/1310217643520819251?color=7289da&label=Discord&logo=discord&logoColor=ffffff">
+  </a>
 </p>
 
 Our GReaT framework leverages the power of advanced pretrained Transformer language models to produce high-quality synthetic tabular data. Generate new data samples effortlessly with our user-friendly API in just a few lines of code. Please see our [publication](https://arxiv.org/pdf/2210.06280) for more details.
