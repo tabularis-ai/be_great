@@ -17,6 +17,9 @@
   <a href="https://discord.com/channels/1310217643520819251/1434507060141359134">
     <img alt="Discord" src="https://img.shields.io/discord/1310217643520819251?color=7289da&label=Discord&logo=discord&logoColor=ffffff">
   </a>
+  <a href="https://colab.research.google.com/github/tabularis-ai/be_great/blob/main/examples/GReaT_colab_example.ipynb">
+    <img alt="Open In Colab" src="https://colab.research.google.com/assets/colab-badge.svg">
+  </a>
 </p>
 
 Our GReaT framework leverages the power of advanced pretrained Transformer language models to produce high-quality synthetic tabular data. Generate new data samples effortlessly with our user-friendly API in just a few lines of code. Please see our [publication](https://arxiv.org/pdf/2210.06280) for more details. 
@@ -48,8 +51,6 @@ model = GReaT(llm='distilgpt2', batch_size=32,  epochs=50,
 model.fit(data)
 synthetic_data = model.sample(n_samples=100)
 ```
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kathrinse/be_great/blob/main/examples/GReaT_colab_example.ipynb)
 
 ### Imputing a sample
 GReaT also features an interface to impute, i.e., fill in, missing values in arbitrary combinations. This requires a trained ``model``, for instance one obtained using the code snippet above, and a ```pd.DataFrame``` where missing values are set to NaN.
