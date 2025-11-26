@@ -19,7 +19,9 @@
   </a>
 </p>
 
-Our GReaT framework leverages the power of advanced pretrained Transformer language models to produce high-quality synthetic tabular data. Generate new data samples effortlessly with our user-friendly API in just a few lines of code. Please see our [publication](https://arxiv.org/pdf/2210.06280) for more details.
+Our GReaT framework leverages the power of advanced pretrained Transformer language models to produce high-quality synthetic tabular data. Generate new data samples effortlessly with our user-friendly API in just a few lines of code. Please see our [publication](https://arxiv.org/pdf/2210.06280) for more details. 
+
+Our framework has also been adopted in practice on [Google’s Kaggle platform](https://www.kaggle.com/code/inversion/make-synthetic-crab-age-data), where it has been used to generate synthetic datasets across multiple competitions.
 
 &nbsp;
 
