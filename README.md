@@ -46,7 +46,7 @@ from sklearn.datasets import fetch_california_housing
 
 data = fetch_california_housing(as_frame=True).frame
 
-model = GReaT(llm='distilgpt2', batch_size=32,  epochs=50,
+model = GReaT(llm='tabularisai/Qwen3-0.3B-distil', batch_size=32,  epochs=5,
               fp16=True, dataloader_num_workers=4)
 model.fit(data)
 synthetic_data = model.sample(n_samples=100)
@@ -70,7 +70,7 @@ imputed_data = model.impute(test_data, max_length=200)
 ### Saving and Loading
 GReaT provides methods for saving a model checkpoint (besides the checkpoints stored by the huggingface transformers Trainer) and loading the checkpoint again.
 ```python
-model = GReaT(llm='distilgpt2', batch_size=32,  epochs=50, fp16=True)
+model = GReaT(llm='tabularisai/Qwen3-0.3B-distil', batch_size=32,  epochs=5, fp16=True)
 model.fit(data)
 model.save("my_directory")  # saves a "model.pt" and a "config.json" file
 model = GReaT.load_from_dir("my_directory")  # loads the model again
@@ -87,7 +87,7 @@ When working with small datasets or datasets with many features, GReaT offers sp
 ```python
 # For small datasets or datasets with many features
 model = GReaT(
-    llm='distilgpt2',
+    llm='tabularisai/Qwen3-0.3B-distil',  
     float_precision=3,  # Limit floating-point precision to 3 decimal places
     batch_size=8,       # Use smaller batch size for small datasets
     epochs=100,         # Train for more epochs with small data
@@ -100,7 +100,7 @@ synthetic_data = model.sample(
     n_samples=100,
     guided_sampling=True,     # Enable feature-by-feature guided generation
     random_feature_order=True,  # Randomize feature order to avoid bias
-    temperature=0.7           # Control diversity of generated values
+    temperature=0.7           # Control diversity of generated values, use lower temperature for challenging data
 )
 ```
 
