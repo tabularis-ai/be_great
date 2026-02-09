@@ -8,7 +8,7 @@
     <title>GReaT</title>
     <link rel="stylesheet" href="css/theme.css" />
     <link rel="stylesheet" href="css/theme_extra.css" />
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/styles/github.min.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
     
       <script>
         // Current page data
@@ -17,12 +17,11 @@
         var mkdocs_page_url = null;
       </script>
     
-    <script src="js/jquery-3.6.0.min.js" defer></script>
     <!--[if lt IE 9]>
       <script src="js/html5shiv.min.js"></script>
     <![endif]-->
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/highlight.min.js"></script>
-      <script>hljs.initHighlightingOnLoad();</script> 
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
 </head>
 
 <body class="wy-body-for-nav" role="document">
@@ -34,14 +33,36 @@
           <a href="." class="icon icon-home"> GReaT
         </a><div role="search">
   <form id ="rtd-search-form" class="wy-form" action="./search.html" method="get">
-      <input type="text" name="q" placeholder="Search docs" title="Type search term here" />
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
   </form>
 </div>
       </div>
 
       <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <ul class="current">
-                <li class="toctree-l1 current"><a class="reference internal current" href=".">Home</a>
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Home</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#usage-with-quickstart">Usage with Quickstart</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#advanced-features">Advanced Features</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#random-preconditioning">Random Preconditioning</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#imputing-a-sample">Imputing a sample</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#optimizing-for-challenging-datasets">Optimizing for Challenging Datasets</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#efficient-fine-tuning-with-lora">Efficient Fine-Tuning with LoRA</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#saving-and-loading">Saving and Loading</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#evaluating-synthetic-data">Evaluating Synthetic Data</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
                 </li>
               </ul>
               <ul>
@@ -85,8 +106,8 @@
       <div class="wy-nav-content">
         <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
   <ul class="wy-breadcrumbs">
-    <li><a href="." class="icon icon-home" alt="Docs"></a> &raquo;</li>
-      <li>Home</li>
+    <li><a href="." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Home</li>
     <li class="wy-breadcrumbs-aside">
     </li>
   </ul>
@@ -104,10 +125,125 @@
 <br> with pretrained Transformer-based language models
 </p>
 
-<p>GReaT can be installed via pip - requires a Python version >= 3.9:</p>
+<h1 id="great">GReaT</h1>
+<p>GReaT is a simple to use framework to generate tabular data with transformer-based language models.</p>
+<h2 id="installation">Installation</h2>
 <pre><code class="language-bash">pip install be-great
 </code></pre>
-<p>See the next sections how to get started with GReaT...</p>
+<h2 id="usage-with-quickstart">Usage with Quickstart</h2>
+<p>For a more complete introduction we provide example Jupyter notebooks.</p>
+<p>Example: (California Housing dataset)</p>
+<pre><code class="language-python">from be_great import GReaT
+from sklearn.datasets import fetch_california_housing
+
+data = fetch_california_housing(as_frame=True).frame
+
+model = GReaT(
+    llm='distilgpt2',    # Language model
+    batch_size=32,       # How many samples are processed at once during training
+    epochs=50,           # Total number of training epochs
+    fp16=True,           # Enable faster mixed precision training
+    dataloader_num_workers=4 # How much CPU processor to use during training 
+)
+model.fit(data)
+synthetic_data = model.sample(n_samples=100)
+</code></pre>
+<h2 id="advanced-features">Advanced Features</h2>
+<h3 id="random-preconditioning">Random Preconditioning</h3>
+<p>During training, GReaT uses a column of the dataset to condition the model. By default, it uses the last column of the dataset. However, this can lead to the model overfitting on that specific column, resulting in synthetic data where that column is almost identical to the original data, while other columns show more variability.</p>
+<p>To prevent this issue, you can enable random preconditioning, which selects a different random column for conditioning in each epoch during training:</p>
+<pre><code class="language-python"># Enable random preconditioning during training
+model.fit(data, random_conditional_col=True)
+</code></pre>
+<p>This typically leads to more balanced synthetic data, where all columns maintain appropriate variability compared to the original dataset.</p>
+<h3 id="imputing-a-sample">Imputing a sample</h3>
+<p>GReaT provides an imputation feature to fill in missing values in a dataframe:</p>
+<pre><code class="language-python"># Randomly drop 50% of the values in the test data
+import numpy as np
+for clm in test_data.columns:
+    test_data[clm]=test_data[clm].apply(lambda x: (x if np.random.rand() &gt; 0.5 else np.nan))
+
+# Impute the missing values
+imputed_data = model.impute(test_data, max_length=200)
+</code></pre>
+<h3 id="optimizing-for-challenging-datasets">Optimizing for Challenging Datasets</h3>
+<p>When working with small datasets or datasets with many features, GReaT offers specialized parameters to improve generation quality:</p>
+<pre><code class="language-python">model = GReaT(
+    llm='distilgpt2',
+    float_precision=3,           # Limit floating-point precision to 3 decimal places
+    batch_size=8,
+    epochs=100,
+    fp16=True,
+)
+model.fit(data)
+
+# Use guided sampling for higher quality generation with complex feature sets
+synthetic_data = model.sample(
+    n_samples=100,
+    guided_sampling=True,        # Enable feature-by-feature guided generation
+    random_feature_order=True,   # Randomize feature order to avoid bias
+    temperature=0.7,
+)
+</code></pre>
+<p>The <code>guided_sampling=True</code> parameter enables a feature-by-feature generation approach, which can produce more reliable results for datasets with many features or complex relationships.</p>
+<p>The <code>float_precision</code> parameter limits decimal places in numerical values, which can help the model focus on significant patterns rather than memorizing exact values.</p>
+<h3 id="efficient-fine-tuning-with-lora">Efficient Fine-Tuning with LoRA</h3>
+<p>GReaT supports LoRA (Low-Rank Adaptation) for parameter-efficient fine-tuning. This drastically reduces memory usage and training time, making it possible to fine-tune larger models on consumer hardware.</p>
+<pre><code class="language-bash">pip install peft
+</code></pre>
+<pre><code class="language-python"># LoRA with auto-detected target modules (works across model architectures)
+model = GReaT(
+    llm='meta-llama/Llama-3.1-8B-Instruct',
+    batch_size=32,
+    epochs=5,
+    efficient_finetuning=&quot;lora&quot;,
+    fp16=True,
+)
+model.fit(data)
+synthetic_data = model.sample(n_samples=100)
+</code></pre>
+<p>You can also customize the LoRA hyperparameters:</p>
+<pre><code class="language-python">model = GReaT(
+    llm='distilgpt2',
+    batch_size=32,
+    epochs=5,
+    efficient_finetuning=&quot;lora&quot;,
+    lora_config={
+        &quot;r&quot;: 8,
+        &quot;lora_alpha&quot;: 16,
+        &quot;lora_dropout&quot;: 0.1,
+        &quot;target_modules&quot;: [&quot;q_proj&quot;, &quot;v_proj&quot;],  # optional, auto-detected if omitted
+    },
+    fp16=True,
+)
+model.fit(data)
+</code></pre>
+<h3 id="saving-and-loading">Saving and Loading</h3>
+<p>GReaT also allows you to save your trained model for later use, including LoRA models:</p>
+<pre><code class="language-python"># Save
+model.save(&quot;my_directory&quot;)  # saves a &quot;model.pt&quot; and a &quot;config.json&quot; file
+
+# Load
+model = GReaT.load_from_dir(&quot;my_directory&quot;)  # loads the model again
+
+# Supports remote file systems via fsspec
+model.save(&quot;s3://my_bucket&quot;)
+model = GReaT.load_from_dir(&quot;s3://my_bucket&quot;)
+</code></pre>
+<h3 id="evaluating-synthetic-data">Evaluating Synthetic Data</h3>
+<p>GReaT includes a built-in metrics suite to evaluate the quality, utility, and privacy of generated data. All metrics share the same interface:</p>
+<pre><code class="language-python">from be_great.metrics import ColumnShapes, DiscriminatorMetric, DistanceToClosestRecord
+
+# Statistical: per-column distribution similarity
+ColumnShapes().compute(real_data, synthetic_data)
+
+# Fidelity: can a classifier tell real from synthetic?
+DiscriminatorMetric().compute(real_data, synthetic_data)
+
+# Privacy: distance from synthetic records to nearest real neighbor
+DistanceToClosestRecord().compute(real_data, synthetic_data)
+</code></pre>
+<p>See the <a href="api-docs/metrics/">Metrics API Reference</a> for the full list of available metrics.</p>
               
             </div>
           </div><footer>
@@ -140,20 +276,21 @@
     
   </span>
 </div>
-    <script>var base_url = '.';</script>
-    <script src="js/theme_extra.js" defer></script>
-    <script src="js/theme.js" defer></script>
-      <script src="search/main.js" defer></script>
-    <script defer>
-        window.onload = function () {
+    <script src="js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = ".";</script>
+    <script src="js/theme_extra.js"></script>
+    <script src="js/theme.js"></script>
+      <script src="search/main.js"></script>
+    <script>
+        jQuery(function () {
             SphinxRtdTheme.Navigation.enable(true);
-        };
+        });
     </script>
 
 </body>
 </html>
 
 <!--
-MkDocs version : 1.4.0
-Build Date UTC : 2022-10-13 10:35:08.898958+00:00
+MkDocs version : 1.6.1
+Build Date UTC : 2026-02-09 11:08:37.988115+00:00
 -->

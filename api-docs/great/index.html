@@ -8,21 +8,20 @@
     <title>GReaT - GReaT</title>
     <link rel="stylesheet" href="../../css/theme.css" />
     <link rel="stylesheet" href="../../css/theme_extra.css" />
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/styles/github.min.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
     
       <script>
         // Current page data
         var mkdocs_page_name = "GReaT";
-        var mkdocs_page_input_path = "api-docs\\great.md";
+        var mkdocs_page_input_path = "api-docs/great.md";
         var mkdocs_page_url = null;
       </script>
     
-    <script src="../../js/jquery-3.6.0.min.js" defer></script>
     <!--[if lt IE 9]>
       <script src="../../js/html5shiv.min.js"></script>
     <![endif]-->
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/highlight.min.js"></script>
-      <script>hljs.initHighlightingOnLoad();</script> 
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
 </head>
 
 <body class="wy-body-for-nav" role="document">
@@ -34,7 +33,7 @@
           <a href="../.." class="icon icon-home"> GReaT
         </a><div role="search">
   <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
-      <input type="text" name="q" placeholder="Search docs" title="Type search term here" />
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
   </form>
 </div>
       </div>
@@ -56,7 +55,7 @@
               <ul class="current">
                   <li class="toctree-l1"><a class="reference internal" href="../">Overview</a>
                   </li>
-                  <li class="toctree-l1 current"><a class="reference internal current" href="./">GReaT</a>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">GReaT</a>
     <ul class="current">
     <li class="toctree-l2"><a class="reference internal" href="#class-great">class GReaT</a>
         <ul>
@@ -64,15 +63,15 @@
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#method-greatfit">method GReaT.fit</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#method-greatgreat_sample">method GReaT.great_sample</a>
-    </li>
-    <li class="toctree-l3"><a class="reference internal" href="#method-greatload_finetuned_model">method GReaT.load_finetuned_model</a>
-    </li>
-    <li class="toctree-l3"><a class="reference internal" href="#classmethod-greatload_from_dir">classmethod GReaT.load_from_dir</a>
-    </li>
     <li class="toctree-l3"><a class="reference internal" href="#method-greatsample">method GReaT.sample</a>
     </li>
+    <li class="toctree-l3"><a class="reference internal" href="#method-greatgreat_sample">method GReaT.great_sample</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#method-greatimpute">method GReaT.impute</a>
+    </li>
     <li class="toctree-l3"><a class="reference internal" href="#method-greatsave">method GReaT.save</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#classmethod-greatload_from_dir">classmethod GReaT.load_from_dir</a>
     </li>
         </ul>
     </li>
@@ -105,9 +104,9 @@
       <div class="wy-nav-content">
         <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
   <ul class="wy-breadcrumbs">
-    <li><a href="../.." class="icon icon-home" alt="Docs"></a> &raquo;</li>
-          <li>API Reference &raquo;</li>
-      <li>GReaT</li>
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">API Reference</li>
+      <li class="breadcrumb-item active">GReaT</li>
     <li class="wy-breadcrumbs-aside">
     </li>
   </ul>
@@ -118,68 +117,108 @@
               
                 <!-- markdownlint-disable -->
 
-<p><a href="https://github.com/kathrinse/be_great/tree/main/be_great\great.py#L0"><img align="right" style="float:right;" src="https://img.shields.io/badge/-source-cccccc?style=flat-square"></a></p>
+<p><a href="https://github.com/tabularis-ai/be_great/tree/main/be_great/great.py#L0"><img align="right" style="float:right;" src="https://img.shields.io/badge/-source-cccccc?style=flat-square"></a></p>
 <h1 id="module-great"><kbd>module</kbd> <code>great</code></h1>
 <hr />
-<p><a href="https://github.com/kathrinse/be_great/tree/main/be_great\great.py#L24"><img align="right" style="float:right;" src="https://img.shields.io/badge/-source-cccccc?style=flat-square"></a></p>
 <h2 id="class-great"><kbd>class</kbd> <code>GReaT</code></h2>
-<p>GReaT Class </p>
-<p>The GReaT class handles the whole generation flow. It is used to fine-tune a large language model for tabular data, and to sample synthetic tabular data. </p>
+<p>GReaT Class</p>
+<p>The GReaT class handles the whole generation flow. It is used to fine-tune a large language model for tabular data, and to sample synthetic tabular data.</p>
 <p><strong>Attributes:</strong></p>
 <ul>
-<li><b><code>llm</code></b> (str):  <a href="https://huggingface.co/models?pipeline_tag=text-generation&amp;sort=downloads">HuggingFace checkpoint</a> of a pretrained large language model, used a basis of our model </li>
-<li><b><code>tokenizer</code></b> (AutoTokenizer):  Tokenizer, automatically downloaded from llm-checkpoint </li>
-<li><b><code>model</code></b> (AutoModelForCausalLM):  Large language model, automatically downloaded from llm-checkpoint </li>
-<li><b><code>experiment_dir</code></b> (str):  Directory, where the training checkpoints will be saved </li>
-<li><b><code>epochs</code></b> (int):  Number of epochs to fine-tune the model </li>
-<li><b><code>batch_size</code></b> (int):  Batch size used for fine-tuning </li>
-<li><b><code>train_hyperparameters</code></b> (dict):  Additional hyperparameters added to the TrainingArguments used by the  HuggingFaceLibrary, see here the <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments">full list</a> of all possible values</li>
-<li><b><code>columns</code></b> (list):  List of all features/columns of the tabular dataset </li>
-<li><b><code>num_cols</code></b> (list):  List of all numerical features/columns of the tabular dataset </li>
-<li><b><code>conditional_col</code></b> (str):  Name of a feature/column on which the sampling can be conditioned </li>
-<li><b><code>conditional_col_dist</code></b> (dict | list):  Distribution of the feature/column specified by condtional_col </li>
+<li><b><code>llm</code></b> (str):  <a href="https://huggingface.co/models?pipeline_tag=text-generation&amp;sort=downloads">HuggingFace checkpoint</a> of a pretrained large language model, used as basis of our model</li>
+<li><b><code>tokenizer</code></b> (AutoTokenizer):  Tokenizer, automatically downloaded from llm-checkpoint</li>
+<li><b><code>model</code></b> (AutoModelForCausalLM):  Large language model, automatically downloaded from llm-checkpoint</li>
+<li><b><code>experiment_dir</code></b> (str):  Directory, where the training checkpoints will be saved</li>
+<li><b><code>epochs</code></b> (int):  Number of epochs to fine-tune the model</li>
+<li><b><code>batch_size</code></b> (int):  Batch size used for fine-tuning</li>
+<li><b><code>efficient_finetuning</code></b> (str):  Fine-tuning method. Set to <code>"lora"</code> for LoRA fine-tuning.</li>
+<li><b><code>float_precision</code></b> (int | None):  Number of decimal places for floating point values. None means full precision.</li>
+<li><b><code>train_hyperparameters</code></b> (dict):  Additional hyperparameters added to the TrainingArguments used by the HuggingFace Library, see here the <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments">full list</a> of all possible values</li>
+<li><b><code>columns</code></b> (list):  List of all features/columns of the tabular dataset</li>
+<li><b><code>num_cols</code></b> (list):  List of all numerical features/columns of the tabular dataset</li>
+<li><b><code>conditional_col</code></b> (str):  Name of a feature/column on which the sampling can be conditioned</li>
+<li><b><code>conditional_col_dist</code></b> (dict | list):  Distribution of the feature/column specified by conditional_col</li>
 </ul>
-<p><a href="https://github.com/kathrinse/be_great/tree/main/be_great\great.py#L46"><img align="right" style="float:right;" src="https://img.shields.io/badge/-source-cccccc?style=flat-square"></a></p>
+<hr />
 <h3 id="method-great__init__"><kbd>method</kbd> <code>GReaT.__init__</code></h3>
 <pre><code class="language-python">__init__(
     llm: str,
     experiment_dir: str = 'trainer_great',
     epochs: int = 100,
     batch_size: int = 8,
+    efficient_finetuning: str = '',
+    lora_config: Optional[Dict[str, Any]] = None,
+    float_precision: Optional[int] = None,
+    report_to: List[str] = [],
     **train_kwargs
 )
 </code></pre>
-<p>Initializes GReaT. </p>
+<p>Initializes GReaT.</p>
 <p><strong>Args:</strong></p>
 <ul>
-<li><b><code>llm</code></b>:  <a href="https://huggingface.co/models?pipeline_tag=text-generation&amp;sort=downloads">HuggingFace checkpoint</a> of a pretrained large language model, used as basis for our model </li>
-<li><b><code>experiment_dir</code></b>:   Directory, where the training checkpoints will be saved </li>
-<li><b><code>epochs</code></b>:  Number of epochs to fine-tune the model </li>
-<li><b><code>batch_size</code></b>:  Batch size used for fine-tuning </li>
-<li><b><code>train_kwargs</code></b>:  Additional hyperparameters added to the TrainingArguments used by the HuggingFaceLibrary,  see here the <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments">full list</a> of all possible values  </li>
+<li><b><code>llm</code></b>:  <a href="https://huggingface.co/models?pipeline_tag=text-generation&amp;sort=downloads">HuggingFace checkpoint</a> of a pretrained large language model, used as basis for our model</li>
+<li><b><code>experiment_dir</code></b>:  Directory, where the training checkpoints will be saved</li>
+<li><b><code>epochs</code></b>:  Number of epochs to fine-tune the model</li>
+<li><b><code>batch_size</code></b>:  Batch size used for fine-tuning</li>
+<li><b><code>efficient_finetuning</code></b>:  Fine-tuning method. Set to <code>"lora"</code> to enable LoRA (Low-Rank Adaptation) fine-tuning. Requires the <code>peft</code> package.</li>
+<li><b><code>lora_config</code></b>:  Optional dictionary of LoRA hyperparameters to override defaults. Supported keys: <code>r</code> (rank, default 16), <code>lora_alpha</code> (scaling factor, default 32), <code>target_modules</code> (list of module names or None for auto-detection), <code>lora_dropout</code> (default 0.05), <code>bias</code> (default "none"), <code>task_type</code> (default "CAUSAL_LM"), <code>modules_to_save</code> (default None).</li>
+<li><b><code>float_precision</code></b>:  Number of decimal places to use for floating point numbers. If None, full precision is used.</li>
+<li><b><code>report_to</code></b>:  List of integrations to report to (e.g. <code>["wandb"]</code>). Empty list disables reporting.</li>
+<li><b><code>train_kwargs</code></b>:  Additional hyperparameters added to the TrainingArguments used by the HuggingFace Library, see here the <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer#transformers.TrainingArguments">full list</a> of all possible values</li>
 </ul>
 <hr />
-<p><a href="https://github.com/kathrinse/be_great/tree/main/be_great\great.py#L77"><img align="right" style="float:right;" src="https://img.shields.io/badge/-source-cccccc?style=flat-square"></a></p>
 <h3 id="method-greatfit"><kbd>method</kbd> <code>GReaT.fit</code></h3>
 <pre><code class="language-python">fit(
-    data: Union[pandas.core.frame.DataFrame, numpy.ndarray],
+    data: Union[DataFrame, ndarray],
     column_names: Optional[List[str]] = None,
     conditional_col: Optional[str] = None,
-    resume_from_checkpoint: Union[bool, str] = False
+    resume_from_checkpoint: Union[bool, str] = False,
+    random_conditional_col: bool = True
 ) → GReaTTrainer
 </code></pre>
-<p>Fine-tune GReaT using tabular data. </p>
+<p>Fine-tune GReaT using tabular data.</p>
 <p><strong>Args:</strong></p>
 <ul>
-<li><b><code>data</code></b>:  Pandas DataFrame or Numpy Array that contains the tabular data </li>
-<li><b><code>column_names</code></b>:  If data is Numpy Array, the feature names have to be defined. If data is Pandas DataFrame, the value is ignored </li>
-<li><b><code>conditional_col</code></b>:  If given, the distribution of this column is saved and used as a starting point for the generation process later. If None, the last column is considered as conditional feature </li>
-<li><b><code>resume_from_checkpoint</code></b>:  If True, resumes training from the latest checkpoint in the experiment_dir. If path, resumes the training from the given checkpoint (has to be a valid HuggingFace checkpoint!) </li>
+<li><b><code>data</code></b>:  Pandas DataFrame or Numpy Array that contains the tabular data</li>
+<li><b><code>column_names</code></b>:  If data is Numpy Array, the feature names have to be defined. If data is Pandas DataFrame, the value is ignored</li>
+<li><b><code>conditional_col</code></b>:  If given, the distribution of this column is saved and used as a starting point for the generation process later. If None, the last column is considered as conditional feature</li>
+<li><b><code>resume_from_checkpoint</code></b>:  If True, resumes training from the latest checkpoint in the experiment_dir. If path, resumes the training from the given checkpoint (has to be a valid HuggingFace checkpoint!)</li>
+<li><b><code>random_conditional_col</code></b>:  If True, a different random column is selected for conditioning at the end of each training epoch. This prevents overfitting on a single column and leads to more balanced synthetic data.</li>
 </ul>
 <p><strong>Returns:</strong>
- GReaTTrainer used for the fine-tuning process </p>
+ GReaTTrainer used for the fine-tuning process</p>
 <hr />
-<p><a href="https://github.com/kathrinse/be_great/tree/main/be_great\great.py#L180"><img align="right" style="float:right;" src="https://img.shields.io/badge/-source-cccccc?style=flat-square"></a></p>
+<h3 id="method-greatsample"><kbd>method</kbd> <code>GReaT.sample</code></h3>
+<pre><code class="language-python">sample(
+    n_samples: int,
+    start_col: Optional[str] = '',
+    start_col_dist: Optional[Union[dict, list]] = None,
+    temperature: float = 0.7,
+    k: int = 100,
+    max_length: int = 100,
+    drop_nan: bool = False,
+    device: str = 'cuda',
+    guided_sampling: bool = False,
+    random_feature_order: bool = True
+) → DataFrame
+</code></pre>
+<p>Generate synthetic tabular data samples.</p>
+<p><strong>Args:</strong></p>
+<ul>
+<li><b><code>n_samples</code></b>:  Number of synthetic samples to generate</li>
+<li><b><code>start_col</code></b>:  Feature to use as starting point for the generation process. If not given, the target learned during the fitting is used as starting point</li>
+<li><b><code>start_col_dist</code></b>:  Feature distribution of the starting feature. Should have the format <code>{"F1": p1, "F2": p2, ...}</code> for discrete columns or be a list of possible values for continuous columns. If not given, the target distribution learned during the fitting is used as starting point</li>
+<li><b><code>temperature</code></b>:  The generation samples each token from the probability distribution given by a softmax function. The temperature parameter controls the softmax function. A low temperature makes it sharper (0 equals greedy search), a high temperature brings more diversity but also uncertainty into the output. See this <a href="https://huggingface.co/blog/how-to-generate">blog article</a> to read more about the generation process.</li>
+<li><b><code>k</code></b>:  Sampling Batch Size. Set as high as possible. Speeds up the generation process significantly</li>
+<li><b><code>max_length</code></b>:  Maximal number of tokens to generate - has to be long enough to not cut any information!</li>
+<li><b><code>drop_nan</code></b>:  If True, rows with any NaN values are dropped from the generated output</li>
+<li><b><code>device</code></b>:  Set to <code>"cpu"</code> if the GPU should not be used. You can also specify the concrete GPU (e.g. <code>"cuda:0"</code>)</li>
+<li><b><code>guided_sampling</code></b>:  If True, enables feature-by-feature guided generation. This is slower but can produce more reliable results for datasets with many features or complex relationships.</li>
+<li><b><code>random_feature_order</code></b>:  If True (and <code>guided_sampling=True</code>), the order of feature generation is randomized for each sample. Helps avoid ordering bias.</li>
+</ul>
+<p><strong>Returns:</strong>
+ Pandas DataFrame with n_samples rows of generated data</p>
+<hr />
 <h3 id="method-greatgreat_sample"><kbd>method</kbd> <code>GReaT.great_sample</code></h3>
 <pre><code class="language-python">great_sample(
     starting_prompts: Union[str, list[str]],
@@ -188,79 +227,63 @@
     device: str = 'cuda'
 ) → DataFrame
 </code></pre>
-<p>Generate synthetic tabular data samples conditioned on a given input. </p>
+<p>Generate synthetic tabular data samples conditioned on a given input.</p>
 <p><strong>Args:</strong></p>
 <ul>
-<li><b><code>starting_prompts</code></b>:  String or List of Strings on which the output is conditioned.  For example, "Sex is female, Age is 26" </li>
-<li><b><code>temperature</code></b>:  The generation samples each token from the probability distribution given by a softmax  function. The temperature parameter controls the softmax function. A low temperature makes it sharper  (0 equals greedy search), a high temperature brings more diversity but also uncertainty into the output. (See this <a href="https:/huggingface.co/blog/how-to-generate">blog article</a> to read more about the generation process.) </li>
-<li><b><code>max_length</code></b>:  Maximal number of tokens to generate - has to be long enough to not cut any information </li>
-<li><b><code>device</code></b>:  Set to "cpu" if the GPU should not be used. You can also specify the concrete GPU. </li>
+<li><b><code>starting_prompts</code></b>:  String or List of Strings on which the output is conditioned. For example, <code>"Sex is female, Age is 26"</code></li>
+<li><b><code>temperature</code></b>:  The generation samples each token from the probability distribution given by a softmax function. The temperature parameter controls the softmax function. A low temperature makes it sharper (0 equals greedy search), a high temperature brings more diversity but also uncertainty into the output. See this <a href="https://huggingface.co/blog/how-to-generate">blog article</a> to read more about the generation process.</li>
+<li><b><code>max_length</code></b>:  Maximal number of tokens to generate - has to be long enough to not cut any information</li>
+<li><b><code>device</code></b>:  Set to <code>"cpu"</code> if the GPU should not be used. You can also specify the concrete GPU.</li>
 </ul>
 <p><strong>Returns:</strong>
- Pandas DataFrame with synthetic data generated based on starting_prompts </p>
+ Pandas DataFrame with synthetic data generated based on starting_prompts</p>
 <hr />
-<p><a href="https://github.com/kathrinse/be_great/tree/main/be_great\great.py#L248"><img align="right" style="float:right;" src="https://img.shields.io/badge/-source-cccccc?style=flat-square"></a></p>
-<h3 id="method-greatload_finetuned_model"><kbd>method</kbd> <code>GReaT.load_finetuned_model</code></h3>
-<pre><code class="language-python">load_finetuned_model(path: str)
-</code></pre>
-<p>Load fine-tuned model </p>
-<p>Load the weights of a fine-tuned large language model into the GReaT pipeline </p>
-<p><strong>Args:</strong></p>
-<ul>
-<li><b><code>path</code></b>:  Path to the fine-tuned model </li>
-</ul>
-<hr />
-<p><a href="https://github.com/kathrinse/be_great/tree/main/be_great\great.py#L258"><img align="right" style="float:right;" src="https://img.shields.io/badge/-source-cccccc?style=flat-square"></a></p>
-<h3 id="classmethod-greatload_from_dir"><kbd>classmethod</kbd> <code>GReaT.load_from_dir</code></h3>
-<pre><code class="language-python">load_from_dir(path: str)
-</code></pre>
-<p>Load GReaT class </p>
-<p>Load trained GReaT model from directory. </p>
-<p><strong>Args:</strong></p>
-<ul>
-<li><b><code>path</code></b>:  Directory where GReaT model is saved </li>
-</ul>
-<p><strong>Returns:</strong>
- New instance of GReaT loaded from directory </p>
-<hr />
-<p><a href="https://github.com/kathrinse/be_great/tree/main/be_great\great.py#L117"><img align="right" style="float:right;" src="https://img.shields.io/badge/-source-cccccc?style=flat-square"></a></p>
-<h3 id="method-greatsample"><kbd>method</kbd> <code>GReaT.sample</code></h3>
-<pre><code class="language-python">sample(
-    n_samples: int,
-    start_col: Optional[str] = '',
-    start_col_dist: Optional[dict, list] = None,
+<h3 id="method-greatimpute"><kbd>method</kbd> <code>GReaT.impute</code></h3>
+<pre><code class="language-python">impute(
+    df_miss: DataFrame,
     temperature: float = 0.7,
     k: int = 100,
     max_length: int = 100,
+    max_retries: int = 15,
     device: str = 'cuda'
 ) → DataFrame
 </code></pre>
-<p>Generate synthetic tabular data samples </p>
+<p>Impute a DataFrame with missing values using a trained GReaT model.</p>
 <p><strong>Args:</strong></p>
 <ul>
-<li><b><code>n_samples</code></b>:  Number of synthetic samples to generate </li>
-<li><b><code>start_col</code></b>:  Feature to use as starting point for the generation process. If not given, the target  learned during the fitting is used as starting point </li>
-<li><b><code>start_col_dist</code></b>:  Feature distribution of the starting feature. Should have the format "{F1:  p1, F2: p2, ...}" for discrete columns or be a list of possible values for continuous columns. If not given, the target distribution learned during the fitting is used as starting point </li>
-<li><b><code>temperature</code></b>:  The generation samples each token from the probability distribution given by a softmax  function. The temperature parameter controls the softmax function. A low temperature makes it sharper  (0 equals greedy search), a high temperature brings more diversity but also uncertainty into the output. (See this <a href="https:/huggingface.co/blog/how-to-generate">blog article</a> to read more about the generation process.) </li>
-<li><b><code>k</code></b>:  Sampling Batch Size. Set as high as possible. Speeds up the generation process significantly </li>
-<li><b><code>max_length</code></b>:  Maximal number of tokens to generate - has to be long enough to not cut any information! </li>
-<li><b><code>device</code></b>:  Set to "cpu" if the GPU should not be used. You can also specify the concrete GPU </li>
+<li><b><code>df_miss</code></b>:  Pandas DataFrame of the exact same format (column names, value ranges/types) as the data used to train the GReaT model, with missing values indicated by NaN. This function will sample the missing values conditioned on the remaining values.</li>
+<li><b><code>temperature</code></b>:  Controls the softmax function during generation. Lower values produce more deterministic output.</li>
+<li><b><code>k</code></b>:  Sampling batch size</li>
+<li><b><code>max_length</code></b>:  Maximal number of tokens to generate</li>
+<li><b><code>max_retries</code></b>:  Maximum number of retries if imputation fails to fill all values</li>
+<li><b><code>device</code></b>:  Set to <code>"cpu"</code> if the GPU should not be used</li>
 </ul>
 <p><strong>Returns:</strong>
- Pandas DataFrame with n_samples rows of generated data </p>
+ Pandas DataFrame with imputed values</p>
 <hr />
-<p><a href="https://github.com/kathrinse/be_great/tree/main/be_great\great.py#L219"><img align="right" style="float:right;" src="https://img.shields.io/badge/-source-cccccc?style=flat-square"></a></p>
 <h3 id="method-greatsave"><kbd>method</kbd> <code>GReaT.save</code></h3>
 <pre><code class="language-python">save(path: str)
 </code></pre>
-<p>Save GReaT Model </p>
-<p>Saves the model weights and a configuration file in the given directory. </p>
+<p>Save GReaT Model</p>
+<p>Saves the model weights and a configuration file in the given directory. If LoRA fine-tuning was used, saves the adapter weights separately using PEFT's native <code>save_pretrained</code> method so they can be reloaded efficiently. Supports remote file systems via <code>fsspec</code> (e.g. <code>s3://</code>, <code>gs://</code>).</p>
 <p><strong>Args:</strong></p>
 <ul>
-<li><b><code>path</code></b>:  Path where to save the model </li>
+<li><b><code>path</code></b>:  Path where to save the model</li>
 </ul>
 <hr />
-<p><em>This file was automatically generated via <a href="https://github.com/ml-tooling/lazydocs">lazydocs</a>.</em></p>
+<h3 id="classmethod-greatload_from_dir"><kbd>classmethod</kbd> <code>GReaT.load_from_dir</code></h3>
+<pre><code class="language-python">load_from_dir(path: str)
+</code></pre>
+<p>Load GReaT class</p>
+<p>Load trained GReaT model from directory. Automatically detects whether the model was saved with LoRA adapters or as a full checkpoint. Supports remote file systems via <code>fsspec</code>.</p>
+<p><strong>Args:</strong></p>
+<ul>
+<li><b><code>path</code></b>:  Directory where GReaT model is saved</li>
+</ul>
+<p><strong>Returns:</strong>
+ New instance of GReaT loaded from directory</p>
+<hr />
+<p><em>This file was manually updated to match the current source code.</em></p>
               
             </div>
           </div><footer>
@@ -296,14 +319,15 @@
     
   </span>
 </div>
-    <script>var base_url = '../..';</script>
-    <script src="../../js/theme_extra.js" defer></script>
-    <script src="../../js/theme.js" defer></script>
-      <script src="../../search/main.js" defer></script>
-    <script defer>
-        window.onload = function () {
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
             SphinxRtdTheme.Navigation.enable(true);
-        };
+        });
     </script>
 
 </body>

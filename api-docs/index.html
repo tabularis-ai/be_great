@@ -8,21 +8,20 @@
     <title>Overview - GReaT</title>
     <link rel="stylesheet" href="../css/theme.css" />
     <link rel="stylesheet" href="../css/theme_extra.css" />
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/styles/github.min.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
     
       <script>
         // Current page data
         var mkdocs_page_name = "Overview";
-        var mkdocs_page_input_path = "api-docs\\README.md";
+        var mkdocs_page_input_path = "api-docs/README.md";
         var mkdocs_page_url = null;
       </script>
     
-    <script src="../js/jquery-3.6.0.min.js" defer></script>
     <!--[if lt IE 9]>
       <script src="../js/html5shiv.min.js"></script>
     <![endif]-->
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/highlight.min.js"></script>
-      <script>hljs.initHighlightingOnLoad();</script> 
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
 </head>
 
 <body class="wy-body-for-nav" role="document">
@@ -34,7 +33,7 @@
           <a href=".." class="icon icon-home"> GReaT
         </a><div role="search">
   <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
-      <input type="text" name="q" placeholder="Search docs" title="Type search term here" />
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
   </form>
 </div>
       </div>
@@ -54,11 +53,15 @@
               </ul>
               <p class="caption"><span class="caption-text">API Reference</span></p>
               <ul class="current">
-                  <li class="toctree-l1 current"><a class="reference internal current" href="./">Overview</a>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Overview</a>
     <ul class="current">
     <li class="toctree-l2"><a class="reference internal" href="#modules">Modules</a>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#classes">Classes</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#metrics">Metrics</a>
+    </li>
+        </ul>
     </li>
     </ul>
                   </li>
@@ -91,9 +94,9 @@
       <div class="wy-nav-content">
         <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
   <ul class="wy-breadcrumbs">
-    <li><a href=".." class="icon icon-home" alt="Docs"></a> &raquo;</li>
-          <li>API Reference &raquo;</li>
-      <li>Overview</li>
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">API Reference</li>
+      <li class="breadcrumb-item active">Overview</li>
     <li class="wy-breadcrumbs-aside">
     </li>
   </ul>
@@ -112,6 +115,7 @@
 <li><a href="great_start/#module-great_start"><code>great_start</code></a></li>
 <li><a href="great_trainer/#module-great_trainer"><code>great_trainer</code></a></li>
 <li><a href="great_utils/#module-great_utils"><code>great_utils</code></a></li>
+<li><a href="metrics/#module-metrics"><code>metrics</code></a></li>
 </ul>
 <h2 id="classes">Classes</h2>
 <ul>
@@ -123,6 +127,21 @@
 <li><a href="great_start/#class-greatstart"><code>great_start.GReaTStart</code></a>: Abstract super class GReaT Start</li>
 <li><a href="great_start/#class-randomstart"><code>great_start.RandomStart</code></a>: Random Starting Features</li>
 <li><a href="great_trainer/#class-greattrainer"><code>great_trainer.GReaTTrainer</code></a>: GReaT Trainer</li>
+</ul>
+<h3 id="metrics">Metrics</h3>
+<ul>
+<li><a href="metrics/#class-basemetric"><code>metrics.BaseMetric</code></a>: Abstract base class for all metrics</li>
+<li><a href="metrics/#class-columnshapes"><code>metrics.ColumnShapes</code></a>: Per-column distribution similarity</li>
+<li><a href="metrics/#class-columnpairtrends"><code>metrics.ColumnPairTrends</code></a>: Pairwise correlation preservation</li>
+<li><a href="metrics/#class-basicstatistics"><code>metrics.BasicStatistics</code></a>: Summary statistics comparison</li>
+<li><a href="metrics/#class-discriminatormetric"><code>metrics.DiscriminatorMetric</code></a>: Real vs synthetic classifier</li>
+<li><a href="metrics/#class-mlefficiency"><code>metrics.MLEfficiency</code></a>: Train on synthetic, test on real</li>
+<li><a href="metrics/#class-distancetoclosestrecord"><code>metrics.DistanceToClosestRecord</code></a>: Distance to nearest real record</li>
+<li><a href="metrics/#class-kanonymization"><code>metrics.kAnonymization</code></a>: k-Anonymity evaluation</li>
+<li><a href="metrics/#class-ldiversity"><code>metrics.lDiversity</code></a>: Sensitive attribute diversity</li>
+<li><a href="metrics/#class-identifiabilityscore"><code>metrics.IdentifiabilityScore</code></a>: Re-identification risk</li>
+<li><a href="metrics/#class-deltapresence"><code>metrics.DeltaPresence</code></a>: Presence disclosure risk</li>
+<li><a href="metrics/#class-membershipinference"><code>metrics.MembershipInference</code></a>: Membership inference attack risk</li>
 </ul>
 <hr />
 <p><em>This file was automatically generated via <a href="https://github.com/ml-tooling/lazydocs">lazydocs</a>.</em></p>
@@ -161,14 +180,15 @@
     
   </span>
 </div>
-    <script>var base_url = '..';</script>
-    <script src="../js/theme_extra.js" defer></script>
-    <script src="../js/theme.js" defer></script>
-      <script src="../search/main.js" defer></script>
-    <script defer>
-        window.onload = function () {
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
             SphinxRtdTheme.Navigation.enable(true);
-        };
+        });
     </script>
 
 </body>

@@ -8,7 +8,7 @@
     <title>Getting Started - GReaT</title>
     <link rel="stylesheet" href="../css/theme.css" />
     <link rel="stylesheet" href="../css/theme_extra.css" />
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/styles/github.min.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
     
       <script>
         // Current page data
@@ -17,12 +17,11 @@
         var mkdocs_page_url = null;
       </script>
     
-    <script src="../js/jquery-3.6.0.min.js" defer></script>
     <!--[if lt IE 9]>
       <script src="../js/html5shiv.min.js"></script>
     <![endif]-->
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/highlight.min.js"></script>
-      <script>hljs.initHighlightingOnLoad();</script> 
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
 </head>
 
 <body class="wy-body-for-nav" role="document">
@@ -34,7 +33,7 @@
           <a href=".." class="icon icon-home"> GReaT
         </a><div role="search">
   <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
-      <input type="text" name="q" placeholder="Search docs" title="Type search term here" />
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
   </form>
 </div>
       </div>
@@ -45,13 +44,21 @@
                 </li>
               </ul>
               <ul class="current">
-                <li class="toctree-l1 current"><a class="reference internal current" href="./">Getting Started</a>
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Getting Started</a>
     <ul class="current">
     <li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#requirements">Requirements</a>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#quickstart">Quickstart</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#random-preconditioning">Random Preconditioning</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#guided-sampling-float-precision">Guided Sampling &amp; Float Precision</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#lora-fine-tuning">LoRA Fine-Tuning</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#evaluating-synthetic-data">Evaluating Synthetic Data</a>
     </li>
     </ul>
                 </li>
@@ -93,8 +100,8 @@
       <div class="wy-nav-content">
         <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
   <ul class="wy-breadcrumbs">
-    <li><a href=".." class="icon icon-home" alt="Docs"></a> &raquo;</li>
-      <li>Getting Started</li>
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Getting Started</li>
     <li class="wy-breadcrumbs-aside">
     </li>
   </ul>
@@ -109,7 +116,7 @@
 <pre><code class="language-bash">pip install be-great
 </code></pre>
 <p>... or download the source code from GitHub</p>
-<pre><code class="language-bash">git clone https://github.com/kathrinse/be_great.git
+<pre><code class="language-bash">git clone https://github.com/tabularis-ai/be_great.git
 </code></pre>
 <h3 id="requirements">Requirements</h3>
 <p>GReaT requires Python 3.9 (or higher) and the following packages:</p>
@@ -118,9 +125,16 @@
 <li>numpy &gt;= 1.23.1</li>
 <li>pandas &gt;= 1.4.4</li>
 <li>scikit_learn &gt;= 1.1.1</li>
+<li>scipy &gt;= 1.9.0</li>
 <li>torch &gt;= 1.10.2</li>
 <li>tqdm &gt;= 4.64.1</li>
 <li>transformers &gt;= 4.22.1</li>
+<li>accelerate &gt;= 0.20.1</li>
+<li>fsspec &gt;= 2024.5.0</li>
+</ul>
+<p><strong>Optional:</strong></p>
+<ul>
+<li>peft &gt;= 0.14.0 (for LoRA fine-tuning)</li>
 </ul>
 <h3 id="quickstart">Quickstart</h3>
 <p>In the example below, we show how the GReaT approach is used to generate synthetic tabular data for the California Housing dataset.</p>
@@ -129,9 +143,69 @@ from sklearn.datasets import fetch_california_housing
 
 data = fetch_california_housing(as_frame=True).frame
 
-model = GReaT(llm='distilgpt2', epochs=50)
+model = GReaT(llm='distilgpt2', batch_size=32, epochs=50, fp16=True)
 model.fit(data)
 synthetic_data = model.sample(n_samples=100)
+</code></pre>
+<h3 id="random-preconditioning">Random Preconditioning</h3>
+<p>During training, GReaT conditions on a single column by default. This can lead to overfitting on that column. Enable random preconditioning to select a different column each epoch:</p>
+<pre><code class="language-python">model.fit(data, random_conditional_col=True)
+</code></pre>
+<h3 id="guided-sampling-float-precision">Guided Sampling &amp; Float Precision</h3>
+<p>For small datasets or datasets with many features, use guided sampling and limited float precision:</p>
+<pre><code class="language-python">model = GReaT(
+    llm='distilgpt2',
+    float_precision=3,
+    batch_size=8,
+    epochs=100,
+    fp16=True,
+)
+model.fit(data)
+
+synthetic_data = model.sample(
+    n_samples=100,
+    guided_sampling=True,
+    random_feature_order=True,
+    temperature=0.7,
+)
+</code></pre>
+<h3 id="lora-fine-tuning">LoRA Fine-Tuning</h3>
+<p>GReaT supports LoRA for parameter-efficient fine-tuning, reducing memory usage and training time:</p>
+<pre><code class="language-bash">pip install peft
+</code></pre>
+<pre><code class="language-python">model = GReaT(
+    llm='distilgpt2',
+    batch_size=32,
+    epochs=5,
+    efficient_finetuning=&quot;lora&quot;,
+    lora_config={&quot;r&quot;: 8, &quot;lora_alpha&quot;: 16, &quot;lora_dropout&quot;: 0.1},
+    fp16=True,
+)
+model.fit(data)
+synthetic_data = model.sample(n_samples=100)
+</code></pre>
+<p>Target modules are auto-detected for common architectures (GPT-2, LLaMA, Falcon, etc.), or can be specified explicitly via <code>lora_config["target_modules"]</code>.</p>
+<h3 id="evaluating-synthetic-data">Evaluating Synthetic Data</h3>
+<p>After generating synthetic data, use the built-in metrics to measure quality and privacy:</p>
+<pre><code class="language-python">from be_great.metrics import ColumnShapes, DiscriminatorMetric, MLEfficiency, DistanceToClosestRecord
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+
+# Compare column distributions (KS test / TVD)
+ColumnShapes().compute(data, synthetic_data)
+
+# Train a classifier to distinguish real vs synthetic (0.5 = best)
+DiscriminatorMetric().compute(data, synthetic_data)
+
+# Train on synthetic, test on real
+MLEfficiency(
+    model=RandomForestClassifier,
+    metric=accuracy_score,
+    model_params={&quot;n_estimators&quot;: 100},
+).compute(data, synthetic_data, label_col=&quot;target&quot;)
+
+# Check privacy: distance to closest real record
+DistanceToClosestRecord().compute(data, synthetic_data)
 </code></pre>
 <p>See Examples to find more details.</p>
               
@@ -169,14 +243,15 @@ synthetic_data = model.sample(n_samples=100)
     
   </span>
 </div>
-    <script>var base_url = '..';</script>
-    <script src="../js/theme_extra.js" defer></script>
-    <script src="../js/theme.js" defer></script>
-      <script src="../search/main.js" defer></script>
-    <script defer>
-        window.onload = function () {
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
             SphinxRtdTheme.Navigation.enable(true);
-        };
+        });
     </script>
 
 </body>
