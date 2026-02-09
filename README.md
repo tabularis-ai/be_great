@@ -108,6 +108,36 @@ The `guided_sampling=True` parameter enables a feature-by-feature generation app
 
 The `float_precision` parameter limits decimal places in numerical values, which can help the model focus on significant patterns rather than memorizing exact values. This is particularly helpful for small datasets where overfitting is a concern.
 
+## Conditional Synthetic Data Generation
+
+GReaT supports constrained sampling with logical operators — generate synthetic tabular data that satisfies conditions like `age >= 30` or `city != 'New York'`. Constraints are enforced during token generation, so every output row is valid with zero waste.
+
+```python
+from be_great import GReaT
+from ucimlrepo import fetch_ucirepo
+
+# Load the UCI Adult (Census Income) dataset
+adult = fetch_ucirepo(id=2)
+df = adult.data.features[["age", "workclass", "education", "sex", "hours-per-week"]].copy()
+df["income"] = adult.data.targets["income"]
+df = df[~df.isin(["?"]).any(axis=1)].dropna()
+
+model = GReaT(llm='distilgpt2', epochs=50, batch_size=32, float_precision=0)
+model.fit(df)
+
+# Generate synthetic data with constraints
+synthetic_data = model.sample(
+    n_samples=100,
+    conditions={
+        "age": ">= 40",
+        "hours-per-week": "<= 40",
+        "sex": "!= 'Male'",
+    },
+)
+```
+
+Supported operators for numeric columns: `>=`, `<=`, `>`, `<`, `==`, `!=`. For categorical columns: `==`, `!=` (quote values with single quotes, e.g. `"== 'Female'"`). Multiple conditions can be combined in a single call. Guided sampling is enabled automatically when conditions are provided.
+
 ## Efficient Fine-Tuning with LoRA
 
 GReaT supports LoRA (Low-Rank Adaptation) for parameter-efficient fine-tuning. This drastically reduces memory usage and training time, making it possible to fine-tune larger models on consumer hardware.

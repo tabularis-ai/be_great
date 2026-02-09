@@ -12,7 +12,7 @@ import pandas as pd
 from tqdm import tqdm
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, TrainerCallback
+from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, TrainerCallback, LogitsProcessorList
 
 from be_great.great_dataset import GReaTDataset, GReaTDataCollator
 from be_great.great_start import (
@@ -23,6 +23,12 @@ from be_great.great_start import (
     _pad_tokens,
 )
 from be_great.great_trainer import GReaTTrainer
+from be_great.great_constrained import (
+    parse_condition,
+    enumerate_valid_values,
+    build_trie,
+    ConstrainedValueProcessor,
+)
 from be_great.great_utils import (
     _array_to_dataframe,
     _get_column_distribution,
@@ -141,6 +147,9 @@ class GReaT:
 
         # Store float precision setting
         self.float_precision = float_precision
+
+        # Per-column statistics for constrained sampling
+        self.col_stats = None
 
     # ------------------------------------------------------------------
     # LoRA helpers
@@ -346,6 +355,7 @@ class GReaT:
         device: str = "cuda",
         guided_sampling: bool = False,
         random_feature_order: bool = True,
+        conditions: tp.Optional[tp.Dict[str, str]] = None,
     ) -> pd.DataFrame:
         """
         Generate synthetic tabular data samples.
@@ -367,10 +377,36 @@ class GReaT:
             guided_sampling (bool): Whether to use guided feature-by-feature sampling (True) or the legacy approach (False).
                 Note that guided sampling may be slower but can be more reliable for certain datasets.
             random_feature_order (bool): Whether to randomize feature order for each sample in guided sampling.
+            conditions (dict, optional): Dictionary mapping column names to condition strings.
+                For example: ``{"Age": ">= 30", "City": "!= 'New York'"}``.
+                When provided, guided sampling is automatically enabled.
 
         Returns:
             pd.DataFrame: DataFrame containing n_samples rows of generated data.
         """
+        # Validate and handle conditions
+        if conditions:
+            # Validate column names
+            if self.columns is None:
+                raise ValueError("Model has not been fitted yet. Please call fit() first.")
+            for col in conditions:
+                if col not in self.columns:
+                    raise ValueError(
+                        f"Condition column {col!r} not found in model columns: {self.columns}"
+                    )
+            # Validate col_stats availability
+            if self.col_stats is None:
+                raise ValueError(
+                    "Column statistics (col_stats) are not available. "
+                    "Please re-fit the model so that column statistics are computed."
+                )
+            # Auto-enable guided sampling
+            if not guided_sampling:
+                logging.info(
+                    "Conditions provided; automatically enabling guided_sampling=True."
+                )
+                guided_sampling = True
+
         # Choose the sampling method
         if guided_sampling:
             return self._guided_sample(
@@ -379,6 +415,7 @@ class GReaT:
                 max_length=max_length,
                 device=device,
                 random_feature_order=random_feature_order,
+                conditions=conditions,
             )
         else:
             return self._legacy_sample(
@@ -399,89 +436,128 @@ class GReaT:
         max_length: int = 100,
         device: str = "cuda",
         random_feature_order: bool = True,
+        conditions: tp.Optional[tp.Dict[str, str]] = None,
     ) -> pd.DataFrame:
         """
         Generate synthetic data with guided feature name prompting.
-        
+
         Args:
             n_samples (int): Number of samples to generate
             temperature (float): Temperature for sampling
             max_length (int): Maximum length of generated tokens
             device (str): Device to use for generation
             random_feature_order (bool): Whether to randomize feature order for each sample
-            
+            conditions (dict, optional): Dictionary mapping column names to condition strings.
+
         Returns:
             pd.DataFrame: Synthetic data with original column names
         """
         if self.columns is None:
             raise ValueError("Model has not been fitted yet. Please call fit() first.")
-        
+
         # Extract known categorical values - if we can find original distributions
         categorical_values = {}
         cat_cols = [col for col in self.columns if col.startswith('cat_')]
-        
+
         # Try to infer categorical values from distributions
         for col in cat_cols:
             if col == self.conditional_col and isinstance(self.conditional_col_dist, dict):
                 categorical_values[col] = list(self.conditional_col_dist.keys())
-        
+
         # Make sure we're in eval mode and use the specified device
         self._resolve_device(device)
         self.model.eval()
-        
+
+        # Pre-build tries for constrained columns (cached, not rebuilt per sample)
+        constraint_tries = {}
+        if conditions:
+            for col, cond_str in conditions.items():
+                op, threshold = parse_condition(cond_str)
+                valid_values = enumerate_valid_values(
+                    col, op, threshold, self.col_stats[col], self.float_precision
+                )
+                constraint_tries[col] = build_trie(valid_values, self.tokenizer)
+                logging.info(
+                    f"Built constraint trie for {col!r} ({cond_str}): "
+                    f"{len(valid_values)} valid values"
+                )
+
         synthetic_data = []
-        
+
         # Use tqdm for progress tracking
         with tqdm(total=n_samples) as pbar:
             for i in range(n_samples):
                 try:
                     # Get feature names
                     feature_names = self.columns.copy()
-                    
+
                     # Randomize feature order if requested
                     if random_feature_order:
                         random.shuffle(feature_names)
-                    
+
                     # Start with empty sample
                     sample_text = ""
                     sample_values = {}
-                    
+
                     # For each feature
                     for feature in feature_names:
                         # Create prompt with feature name
                         prompt = f"{sample_text}{feature} is"
-                        
+
                         # Generate only the value (not the next feature name)
                         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
-                        
+                        prompt_length = inputs["input_ids"].shape[1]
+
+                        # Build logits processor for constrained features
+                        logits_processor = None
+                        if feature in constraint_tries:
+                            processor = ConstrainedValueProcessor(
+                                trie=constraint_tries[feature],
+                                tokenizer=self.tokenizer,
+                                prompt_length=prompt_length,
+                            )
+                            logits_processor = LogitsProcessorList([processor])
+
                         # Generate until semicolon or max_length
                         try:
                             # Check if semicolon is in vocabulary
                             semicolon_token = self.tokenizer.encode(";")[0] if ";" in self.tokenizer.decode(list(range(1000))) else None
-                            
-                            output = self.model.generate(
-                                inputs["input_ids"],
-                                max_length=len(inputs["input_ids"][0]) + 30,  # Shorter segment - limit to 30 tokens
+
+                            generate_kwargs = dict(
+                                max_length=prompt_length + 30,
                                 temperature=temperature,
                                 pad_token_id=self.tokenizer.eos_token_id,
                                 eos_token_id=semicolon_token,
-                                do_sample=True
+                                do_sample=True,
+                            )
+                            if logits_processor is not None:
+                                generate_kwargs["logits_processor"] = logits_processor
+
+                            output = self.model.generate(
+                                inputs["input_ids"],
+                                **generate_kwargs,
                             )
                         except (ValueError, RuntimeError, IndexError) as e:
                             # If semicolon token doesn't work, generate with length limit
                             logging.debug(f"Semicolon-based generation failed, falling back to length limit: {e}")
-                            output = self.model.generate(
-                                inputs["input_ids"],
-                                max_length=len(inputs["input_ids"][0]) + 30,  # Shorter segment - limit to 30 tokens
+                            fallback_kwargs = dict(
+                                max_length=prompt_length + 30,
                                 temperature=temperature,
                                 pad_token_id=self.tokenizer.eos_token_id,
-                                do_sample=True
+                                do_sample=True,
                             )
-                        
+                            if logits_processor is not None:
+                                fallback_kwargs["logits_processor"] = logits_processor
+
+                            output = self.model.generate(
+                                inputs["input_ids"],
+                                **fallback_kwargs,
+                            )
+
                         # Extract the generated value
                         generated_text = self.tokenizer.decode(output[0], skip_special_tokens=True)
                         raw_value = generated_text[len(prompt):].strip()
-                        
+
                         # Clean up the value (improved parsing)
                         # First check for semicolon
                         if ";" in raw_value:
@@ -496,11 +572,11 @@ class GReaT:
                             else:
                                 # If no delimiters found, use the whole string but truncate if too long
                                 value = raw_value[:30].strip()
-                        
+
                         # Clean up any trailing non-alphanumeric characters
                         while value and not (value[-1].isalnum() or value[-1] in ['.', '-']):
                             value = value[:-1]
-                        
+
                         if feature in self.num_cols:
                             # Try to extract a number if this is a numerical column
                             numeric_match = re.search(r'-?\d+\.?\d*', value)
@@ -517,7 +593,7 @@ class GReaT:
                                         value = cat  # Use the proper case from the original
                                         matched = True
                                         break
-                                
+
                                 # If no direct match, try to find a valid category in the text
                                 if not matched:
                                     for cat in valid_cats:
@@ -525,35 +601,35 @@ class GReaT:
                                             value = cat  # Use the proper case from the original
                                             matched = True
                                             break
-                        
+
                         # Store the value
                         sample_values[feature] = value
-                        
+
                         # Update sample text for context in next iteration
                         sample_text += f"{feature} is {value}; "
-                    
+
                     # Create a dictionary with all features in original order
                     ordered_sample = {feature: sample_values.get(feature, "") for feature in self.columns}
                     synthetic_data.append(ordered_sample)
-                    
+
                     # Update progress bar
                     pbar.update(1)
-                    
+
                 except Exception as e:
                     print(f"Error generating sample {i+1}: {str(e)}")
                     continue
-        
+
         # Convert to DataFrame
         if synthetic_data:
             df = pd.DataFrame(synthetic_data)
-            
+
             # Convert numerical columns to float if possible
             for col in self.num_cols:
                 try:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
                 except (ValueError, TypeError) as e:
                     logging.warning(f"Could not convert column {col} to numeric: {e}")
-            
+
             return df.head(n_samples)  # Return exactly n_samples rows
         else:
             print("Failed to generate any valid samples.")
@@ -964,6 +1040,21 @@ class GReaT:
         # Update the column names (and numerical columns for some sanity checks after sampling)
         self.columns = df.columns.to_list()
         self.num_cols = df.select_dtypes(include=np.number).columns.to_list()
+
+        # Compute per-column statistics for constrained sampling
+        self.col_stats = {}
+        for col in self.columns:
+            if col in self.num_cols:
+                self.col_stats[col] = {
+                    "type": "numeric",
+                    "min": float(df[col].min()),
+                    "max": float(df[col].max()),
+                }
+            else:
+                self.col_stats[col] = {
+                    "type": "categorical",
+                    "categories": df[col].dropna().unique().astype(str).tolist(),
+                }
 
     def _update_conditional_information(
         self, df: pd.DataFrame, conditional_col: tp.Optional[str] = None
