@@ -201,7 +201,7 @@ class GReaT:
             self.model,
             training_args,
             train_dataset=great_ds,
-            tokenizer=self.tokenizer,
+            processing_class=self.tokenizer,
             data_collator=GReaTDataCollator(self.tokenizer),
             callbacks=callbacks,
         )
