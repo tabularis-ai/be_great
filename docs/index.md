@@ -69,9 +69,76 @@ for clm in test_data.columns:
 imputed_data = model.impute(test_data, max_length=200)
 ```
 
+### Optimizing for Challenging Datasets
+
+When working with small datasets or datasets with many features, GReaT offers specialized parameters to improve generation quality:
+
+```python
+model = GReaT(
+    llm='distilgpt2',
+    float_precision=3,           # Limit floating-point precision to 3 decimal places
+    batch_size=8,
+    epochs=100,
+    fp16=True,
+)
+model.fit(data)
+
+# Use guided sampling for higher quality generation with complex feature sets
+synthetic_data = model.sample(
+    n_samples=100,
+    guided_sampling=True,        # Enable feature-by-feature guided generation
+    random_feature_order=True,   # Randomize feature order to avoid bias
+    temperature=0.7,
+)
+```
+
+The `guided_sampling=True` parameter enables a feature-by-feature generation approach, which can produce more reliable results for datasets with many features or complex relationships.
+
+The `float_precision` parameter limits decimal places in numerical values, which can help the model focus on significant patterns rather than memorizing exact values.
+
+### Efficient Fine-Tuning with LoRA
+
+GReaT supports LoRA (Low-Rank Adaptation) for parameter-efficient fine-tuning. This drastically reduces memory usage and training time, making it possible to fine-tune larger models on consumer hardware.
+
+```bash
+pip install peft
+```
+
+```python
+# LoRA with auto-detected target modules (works across model architectures)
+model = GReaT(
+    llm='meta-llama/Llama-3.1-8B-Instruct',
+    batch_size=32,
+    epochs=5,
+    efficient_finetuning="lora",
+    fp16=True,
+)
+model.fit(data)
+synthetic_data = model.sample(n_samples=100)
+```
+
+You can also customize the LoRA hyperparameters:
+
+```python
+model = GReaT(
+    llm='distilgpt2',
+    batch_size=32,
+    epochs=5,
+    efficient_finetuning="lora",
+    lora_config={
+        "r": 8,
+        "lora_alpha": 16,
+        "lora_dropout": 0.1,
+        "target_modules": ["q_proj", "v_proj"],  # optional, auto-detected if omitted
+    },
+    fp16=True,
+)
+model.fit(data)
+```
+
 ### Saving and Loading
 
-GReaT also allows you to save your trained model for later use:
+GReaT also allows you to save your trained model for later use, including LoRA models:
 
 ```python
 # Save
@@ -79,6 +146,28 @@ model.save("my_directory")  # saves a "model.pt" and a "config.json" file
 
 # Load
 model = GReaT.load_from_dir("my_directory")  # loads the model again
+
+# Supports remote file systems via fsspec
+model.save("s3://my_bucket")
+model = GReaT.load_from_dir("s3://my_bucket")
 ```
 
+### Evaluating Synthetic Data
+
+GReaT includes a built-in metrics suite to evaluate the quality, utility, and privacy of generated data. All metrics share the same interface:
+
+```python
+from be_great.metrics import ColumnShapes, DiscriminatorMetric, DistanceToClosestRecord
+
+# Statistical: per-column distribution similarity
+ColumnShapes().compute(real_data, synthetic_data)
+
+# Fidelity: can a classifier tell real from synthetic?
+DiscriminatorMetric().compute(real_data, synthetic_data)
+
+# Privacy: distance from synthetic records to nearest real neighbor
+DistanceToClosestRecord().compute(real_data, synthetic_data)
+```
+
+See the [Metrics API Reference](./api-docs/metrics.md) for the full list of available metrics.
 
