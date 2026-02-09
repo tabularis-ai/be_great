@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "be_great"
-version = "0.0.10"
+version = "0.0.12"
 authors = [
   { name="Kathrin Sessler", email="kathrin.sessler@tum.de" },
   { name="Vadim Borisov", email="vadim@tabularis.ai"},
@@ -24,15 +24,19 @@ dependencies = [
     "numpy >= 1.23.1",
     "pandas >= 1.4.4",
     "scikit_learn >= 1.1.1",
+    "scipy >= 1.9.0",
     "torch >= 1.10.2",
     "tqdm >= 4.64.1",
     "transformers >= 4.22.1",
     "accelerate >= 0.20.1",
 ]
 
+[project.optional-dependencies]
+lora = ["peft >= 0.14.0"]
+
 [project.urls]
 "Homepage" = "https://github.com/tabularis-ai/be_great"
 "Documentation" = "https://tabularis-ai.github.io/be_great/"
 
 [tool.setuptools]
-packages = ["be_great"]
+packages = ["be_great", "be_great.metrics"]

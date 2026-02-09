@@ -28,7 +28,7 @@ from be_great.great_utils import (
     _get_column_distribution,
     _convert_tokens_to_text,
     _convert_text_to_tabular_data,
-    _partial_df_to_promts,
+    _partial_df_to_prompts,
     bcolors,
 )
 
@@ -78,6 +78,7 @@ class GReaT:
         epochs: int = 100,
         batch_size: int = 8,
         efficient_finetuning: str = "",
+        lora_config: tp.Optional[tp.Dict[str, tp.Any]] = None,
         float_precision: tp.Optional[int] = None,
         report_to: tp.List[str] = [],
         **train_kwargs,
@@ -89,7 +90,17 @@ class GReaT:
             experiment_dir:  Directory, where the training checkpoints will be saved
             epochs: Number of epochs to fine-tune the model
             batch_size: Batch size used for fine-tuning
-            efficient_finetuning: Indication of fune-tuning method
+            efficient_finetuning: Indication of fine-tuning method. Set to "lora" to enable LoRA fine-tuning.
+            lora_config: Optional dictionary of LoRA hyperparameters to override defaults.
+                Supported keys:
+                - r (int): LoRA rank. Default 16.
+                - lora_alpha (int): LoRA alpha scaling factor. Default 32.
+                - target_modules (list[str] | None): List of module names to apply LoRA to.
+                    If None, auto-detected based on the model architecture.
+                - lora_dropout (float): Dropout probability for LoRA layers. Default 0.05.
+                - bias (str): Bias type for LoRA. Default "none".
+                - task_type (str): PEFT task type. Default "CAUSAL_LM".
+                - modules_to_save (list[str] | None): Additional modules to save alongside LoRA. Default None.
             float_precision: Number of decimal places to use for floating point numbers. If None, full precision is used.
             report_to: List of integrations to report to. Empty list means no reporting (disable Weights & Biases).
             train_kwargs: Additional hyperparameters added to the TrainingArguments used by the HuggingFaceLibrary,
@@ -100,39 +111,18 @@ class GReaT:
         self.efficient_finetuning = efficient_finetuning
         self.llm = llm
         self.tokenizer = AutoTokenizer.from_pretrained(self.llm)
-        self.tokenizer.pad_token = self.tokenizer.eos_token
+        # Only fall back to eos_token if the tokenizer has no pad_token at all
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+        # Decoder-only models need left-padding for correct generation
+        self.tokenizer.padding_side = "left"
         self.model = AutoModelForCausalLM.from_pretrained(self.llm)
 
-        if self.efficient_finetuning == "lora":
-            # Lazy importing
-            try:
-                from peft import (
-                    LoraConfig,
-                    get_peft_model,
-                    prepare_model_for_int8_training,
-                    TaskType,
-                )
-            except ImportError:
-                raise ImportError(
-                    "This function requires the 'peft' package. Please install it with - pip install peft==0.9.0"
-                )
+        # Store the user-provided LoRA config dict (used for serialization)
+        self._lora_config_dict = lora_config or {}
 
-            # Define LoRA Config
-            lora_config = LoraConfig(
-                r=16,  # only training 0.16% of the parameters of the model
-                lora_alpha=32,
-                target_modules=[
-                    "c_attn"
-                ],  # this is specific for gpt2 model, to be adapted
-                lora_dropout=0.05,
-                bias="none",
-                task_type=TaskType.CAUSAL_LM,  # this is specific for gpt2 model, to be adapted
-            )
-            # prepare int-8 model for training
-            self.model = prepare_model_for_int8_training(self.model)
-            # add LoRA adaptor
-            self.model = get_peft_model(self.model, lora_config)
-            self.model.print_trainable_parameters()
+        if self.efficient_finetuning == "lora":
+            self._apply_lora(self._lora_config_dict)
 
         # Set the training hyperparameters
         self.experiment_dir = experiment_dir
@@ -146,8 +136,141 @@ class GReaT:
         self.conditional_col = None
         self.conditional_col_dist = None
 
+        # Device management — resolved once, reused everywhere
+        self.device = None
+
         # Store float precision setting
         self.float_precision = float_precision
+
+    # ------------------------------------------------------------------
+    # LoRA helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _detect_target_modules(model) -> tp.List[str]:
+        """Auto-detect linear attention projection modules for LoRA.
+
+        Inspects the model's named modules and returns a list of common
+        attention-projection module name patterns found across popular
+        architectures (GPT-2, LLaMA/Mistral, Falcon, GPT-NeoX, Bloom, …).
+
+        Returns:
+            List of module name strings suitable for ``target_modules`` in
+            a ``LoraConfig``.
+        """
+        # Candidate module-name patterns grouped by architecture family.
+        # Order matters: we check from most common to least common.
+        candidate_patterns = [
+            # LLaMA / Mistral / Mixtral / Gemma / Phi-3 style
+            ["q_proj", "v_proj"],
+            ["q_proj", "k_proj", "v_proj", "o_proj"],
+            # GPT-2 style (fused QKV)
+            ["c_attn", "c_proj"],
+            ["c_attn"],
+            # Falcon style
+            ["query_key_value", "dense"],
+            ["query_key_value"],
+            # GPT-NeoX / Pythia style
+            ["query_key_value", "dense"],
+            # Bloom style
+            ["query_key_value", "dense"],
+            # GPT-J style
+            ["q_proj", "k_proj", "v_proj", "out_proj"],
+            # OPT style
+            ["q_proj", "v_proj", "k_proj", "out_proj"],
+        ]
+
+        module_names = {name.split(".")[-1] for name, _ in model.named_modules()}
+
+        for pattern in candidate_patterns:
+            if all(p in module_names for p in pattern):
+                logging.info(f"Auto-detected LoRA target modules: {pattern}")
+                return pattern
+
+        # Fallback: find all nn.Linear leaf modules that look like
+        # attention projections (name contains "attn", "attention", or "proj").
+        import torch.nn as nn
+
+        fallback = set()
+        for name, mod in model.named_modules():
+            if isinstance(mod, nn.Linear):
+                short = name.split(".")[-1]
+                if any(kw in short.lower() for kw in ("attn", "attention", "proj", "query", "key", "value")):
+                    fallback.add(short)
+        if fallback:
+            result = sorted(fallback)
+            logging.info(f"Auto-detected LoRA target modules (fallback): {result}")
+            return result
+
+        raise ValueError(
+            "Could not auto-detect target modules for LoRA. "
+            "Please specify them explicitly via lora_config={'target_modules': ['module_name', ...]}."
+        )
+
+    def _apply_lora(self, lora_cfg: tp.Dict[str, tp.Any]):
+        """Wrap ``self.model`` with a PEFT LoRA adapter.
+
+        Args:
+            lora_cfg: Dictionary of LoRA hyperparameters (may be empty to
+                use all defaults).
+        """
+        try:
+            from peft import LoraConfig, get_peft_model, TaskType
+        except ImportError:
+            raise ImportError(
+                "LoRA fine-tuning requires the 'peft' package. "
+                "Install it with:  pip install peft"
+            )
+
+        # Resolve target modules: user-supplied or auto-detected
+        target_modules = lora_cfg.get("target_modules", None)
+        if target_modules is None:
+            target_modules = self._detect_target_modules(self.model)
+
+        # Map string task type to enum if needed
+        task_type_raw = lora_cfg.get("task_type", "CAUSAL_LM")
+        if isinstance(task_type_raw, str):
+            task_type = getattr(TaskType, task_type_raw, TaskType.CAUSAL_LM)
+        else:
+            task_type = task_type_raw
+
+        peft_config = LoraConfig(
+            r=lora_cfg.get("r", 16),
+            lora_alpha=lora_cfg.get("lora_alpha", 32),
+            target_modules=target_modules,
+            lora_dropout=lora_cfg.get("lora_dropout", 0.05),
+            bias=lora_cfg.get("bias", "none"),
+            task_type=task_type,
+            modules_to_save=lora_cfg.get("modules_to_save", None),
+        )
+
+        self.model = get_peft_model(self.model, peft_config)
+        self.model.print_trainable_parameters()
+
+    @property
+    def _is_peft_model(self) -> bool:
+        """Return True if the current model is wrapped with PEFT."""
+        try:
+            from peft import PeftModel
+            return isinstance(self.model, PeftModel)
+        except ImportError:
+            return False
+
+    def _resolve_device(self, device: str) -> torch.device:
+        """Resolve and cache the compute device, moving the model if needed.
+
+        Args:
+            device: Requested device string (e.g. "cuda", "cpu", "cuda:0").
+
+        Returns:
+            torch.device that the model is now on.
+        """
+        resolved = torch.device(device if torch.cuda.is_available() or device == "cpu" else "cpu")
+        if self.device != resolved:
+            self.device = resolved
+            self.model.to(self.device)
+            logging.info(f"Model moved to {self.device}")
+        return self.device
 
     def fit(
         self,
@@ -303,8 +426,7 @@ class GReaT:
                 categorical_values[col] = list(self.conditional_col_dist.keys())
         
         # Make sure we're in eval mode and use the specified device
-        self.model.to(device)
-        self.device = torch.device(device)
+        self._resolve_device(device)
         self.model.eval()
         
         synthetic_data = []
@@ -345,8 +467,9 @@ class GReaT:
                                 eos_token_id=semicolon_token,
                                 do_sample=True
                             )
-                        except:
+                        except (ValueError, RuntimeError, IndexError) as e:
                             # If semicolon token doesn't work, generate with length limit
+                            logging.debug(f"Semicolon-based generation failed, falling back to length limit: {e}")
                             output = self.model.generate(
                                 inputs["input_ids"],
                                 max_length=len(inputs["input_ids"][0]) + 30,  # Shorter segment - limit to 30 tokens
@@ -428,8 +551,8 @@ class GReaT:
             for col in self.num_cols:
                 try:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
-                except:
-                    print(f"Warning: Could not convert column {col} to numeric")
+                except (ValueError, TypeError) as e:
+                    logging.warning(f"Could not convert column {col} to numeric: {e}")
             
             return df.head(n_samples)  # Return exactly n_samples rows
         else:
@@ -471,7 +594,7 @@ class GReaT:
         great_start = self._get_start_sampler(start_col, start_col_dist)
 
         # Move model to device
-        self.model.to(device)
+        self._resolve_device(device)
 
         # Init list for generated DataFrames
         dfs = []
@@ -483,15 +606,19 @@ class GReaT:
             try:
                 while n_samples > already_generated:
                     start_tokens = great_start.get_start_tokens(k)
-                    start_tokens = torch.tensor(start_tokens).to(device)
+                    start_tokens = torch.tensor(start_tokens).to(self.device)
+
+                    # Build attention mask so the model ignores padding tokens
+                    attention_mask = (start_tokens != self.tokenizer.pad_token_id).long()
 
                     # Generate tokens
                     tokens = self.model.generate(
                         input_ids=start_tokens,
+                        attention_mask=attention_mask,
                         max_length=max_length,
                         do_sample=True,
                         temperature=temperature,
-                        pad_token_id=50256,
+                        pad_token_id=self.tokenizer.pad_token_id,
                     )
 
                     # Convert tokens back to tabular data
@@ -590,7 +717,7 @@ class GReaT:
         """
         # ToDo: Add n_samples argument to generate more samples for one conditional input.
 
-        self.model.to(device)
+        self._resolve_device(device)
         starting_prompts = (
             [starting_prompts]
             if isinstance(starting_prompts, str)
@@ -604,15 +731,18 @@ class GReaT:
         else:
             loop_iter = starting_prompts
         for prompt in loop_iter:
-            start_token = torch.tensor(self.tokenizer(prompt)["input_ids"]).to(device)
+            start_token = torch.tensor(self.tokenizer(prompt)["input_ids"]).to(self.device)
+            input_ids = torch.unsqueeze(start_token, 0)
+            attention_mask = (input_ids != self.tokenizer.pad_token_id).long()
 
             # Generate tokens
             gen = self.model.generate(
-                input_ids=torch.unsqueeze(start_token, 0),
+                input_ids=input_ids,
+                attention_mask=attention_mask,
                 max_length=max_length,
                 do_sample=True,
                 temperature=temperature,
-                pad_token_id=50256,
+                pad_token_id=self.tokenizer.pad_token_id,
             )
             generated_data.append(torch.squeeze(gen))
 
@@ -655,7 +785,7 @@ class GReaT:
                 "The column names in the DataFrame passed to impute do not match the columns of the GReaT model."
             )
 
-        self.model.to(device)
+        self._resolve_device(device)
 
         # start_token = torch.tensor(_pad_tokens(self.tokenizer(starting_prompts)["input_ids"])).to(device)
         index = 0
@@ -670,7 +800,7 @@ class GReaT:
                     num_attrs_missing = pd.isna(df_curr).sum().sum()
                     # print("Number of missing values: ",  num_attrs_missing)
                     # Generate text promt from current features.
-                    starting_prompts = _partial_df_to_promts(df_curr, self.float_precision)
+                    starting_prompts = _partial_df_to_prompts(df_curr, self.float_precision)
                     df_curr = self.great_sample(
                         starting_prompts, temperature, max_length, device=device
                     )
@@ -700,6 +830,8 @@ class GReaT:
         """Save GReaT Model
 
         Saves the model weights and a configuration file in the given directory.
+        If LoRA fine-tuning was used, saves the adapter weights separately using
+        PEFT's native ``save_pretrained`` method so they can be reloaded efficiently.
 
         Args:
             path: Path where to save the model
@@ -723,26 +855,57 @@ class GReaT:
                     attributes["conditional_col_dist"]
                 )
 
+            # torch.device is not JSON serializable
+            if "device" in attributes and isinstance(attributes["device"], torch.device):
+                attributes["device"] = str(attributes["device"])
+
             json.dump(attributes, f)
 
         # Save model weights
-        torch.save(self.model.state_dict(), fs.open(path + "/model.pt", "wb"))
+        if self._is_peft_model:
+            # Save only the LoRA adapter weights (much smaller than full model)
+            self.model.save_pretrained(path + "/lora_adapter")
+            logging.info(f"LoRA adapter saved to {path}/lora_adapter")
+        else:
+            torch.save(self.model.state_dict(), fs.open(path + "/model.pt", "wb"))
 
     def load_finetuned_model(self, path: str):
         """Load fine-tuned model
 
-        Load the weights of a fine-tuned large language model into the GReaT pipeline
+        Load the weights of a fine-tuned large language model into the GReaT pipeline.
+        Supports both full model weights (``.pt`` files) and LoRA adapter directories.
 
         Args:
-            path: Path to the fine-tuned model
+            path: Path to the fine-tuned model weights file (``.pt``) **or** to a
+                directory containing a saved LoRA adapter (created by
+                ``PeftModel.save_pretrained``).
         """
-        self.model.load_state_dict(torch.load(fsspec.open(path, "rb")))
+        import os
+
+        # Check if path is a LoRA adapter directory
+        if os.path.isdir(path) and os.path.exists(os.path.join(path, "adapter_config.json")):
+            try:
+                from peft import PeftModel
+            except ImportError:
+                raise ImportError(
+                    "Loading a LoRA adapter requires the 'peft' package. "
+                    "Install it with:  pip install peft"
+                )
+            # If the model is already a PeftModel, load the new adapter weights
+            if self._is_peft_model:
+                self.model.load_adapter(path, adapter_name="default")
+            else:
+                self.model = PeftModel.from_pretrained(self.model, path)
+            logging.info(f"LoRA adapter loaded from {path}")
+        else:
+            self.model.load_state_dict(torch.load(fsspec.open(path, "rb")))
 
     @classmethod
     def load_from_dir(cls, path: str):
         """Load GReaT class
 
-        Load trained GReaT model from directory.
+        Load trained GReaT model from directory.  Automatically detects whether
+        the model was saved with LoRA adapters or as a full checkpoint.
 
         Args:
             path: Directory where GReaT model is saved
@@ -750,6 +913,8 @@ class GReaT:
         Returns:
             New instance of GReaT loaded from directory
         """
+        import os
+
         fs = fsspec.filesystem(fsspec.utils.get_protocol(path))
         assert fs.exists(path), f"Directory {path} does not exist."
 
@@ -757,15 +922,41 @@ class GReaT:
         with fs.open(path + "/config.json", "r") as f:
             attributes = json.load(f)
 
-        # Create new be_great model instance
+        # Create new be_great model instance — do NOT apply LoRA in __init__
+        # (we will load the adapter weights directly).
         great = cls(attributes["llm"])
 
         # Set all attributes
         for k, v in attributes.items():
             setattr(great, k, v)
 
-        # Load model weights
-        great.model.load_state_dict(torch.load(fs.open(path + "/model.pt", "rb"), map_location="cpu"))
+        # Restore torch.device if it was serialized as a string
+        if isinstance(great.device, str):
+            great.device = torch.device(great.device)
+
+        # Load model weights — LoRA adapter or full checkpoint
+        lora_adapter_path = path + "/lora_adapter"
+        has_lora_adapter = (
+            fs.exists(lora_adapter_path)
+            and fs.exists(lora_adapter_path + "/adapter_config.json")
+        )
+
+        if has_lora_adapter:
+            try:
+                from peft import PeftModel
+            except ImportError:
+                raise ImportError(
+                    "Loading a LoRA model requires the 'peft' package. "
+                    "Install it with:  pip install peft"
+                )
+            great.model = PeftModel.from_pretrained(
+                great.model, lora_adapter_path, map_location="cpu"
+            )
+            logging.info(f"LoRA adapter loaded from {lora_adapter_path}")
+        else:
+            great.model.load_state_dict(
+                torch.load(fs.open(path + "/model.pt", "rb"), map_location="cpu")
+            )
 
         return great
 

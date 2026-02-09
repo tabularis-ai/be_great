@@ -108,7 +108,89 @@ The `guided_sampling=True` parameter enables a feature-by-feature generation app
 
 The `float_precision` parameter limits decimal places in numerical values, which can help the model focus on significant patterns rather than memorizing exact values. This is particularly helpful for small datasets where overfitting is a concern.
 
-## GReaT Citation 
+## Efficient Fine-Tuning with LoRA
+
+GReaT supports LoRA (Low-Rank Adaptation) for parameter-efficient fine-tuning. This drastically reduces memory usage and training time, making it possible to fine-tune larger models on consumer hardware.
+
+```python
+pip install peft
+```
+
+```python
+# LoRA with auto-detected target modules (works across model architectures)
+model = GReaT(
+    llm='meta-llama/Llama-3.1-8B-Instruct',
+    batch_size=32,
+    epochs=5,
+    efficient_finetuning="lora",
+    fp16=True,
+)
+model.fit(data)
+synthetic_data = model.sample(n_samples=100)
+```
+
+You can also customize the LoRA hyperparameters:
+
+```python
+model = GReaT(
+    llm='tabularisai/Qwen3-0.3B-distil',
+    batch_size=32,
+    epochs=5,
+    efficient_finetuning="lora",
+    lora_config={
+        "r": 8,
+        "lora_alpha": 16,
+        "lora_dropout": 0.1,
+        "target_modules": ["q_proj", "v_proj"],  # optional, auto-detected if omitted
+    },
+    fp16=True,
+)
+model.fit(data)
+```
+
+## GReaT Metrics
+
+GReaT ships with a built-in evaluation suite to measure the quality, utility, and privacy of your synthetic data. All metrics follow the same interface:
+
+```python
+from be_great.metrics import ColumnShapes, DiscriminatorMetric, MLEfficiency, DistanceToClosestRecord
+
+# real_data: original pd.DataFrame
+# synthetic_data: generated pd.DataFrame from model.sample()
+
+ColumnShapes().compute(real_data, synthetic_data)
+DiscriminatorMetric().compute(real_data, synthetic_data)
+MLEfficiency(model=RandomForestClassifier, metric=accuracy_score,
+             model_params={"n_estimators": 100}).compute(
+    real_data, synthetic_data, label_col="target"
+)
+DistanceToClosestRecord().compute(real_data, synthetic_data)
+```
+
+### Statistical Metrics
+| Metric | What it measures |
+|---|---|
+| `ColumnShapes` | Per-column distribution similarity (KS test for numerical, TVD for categorical) |
+| `ColumnPairTrends` | Preservation of pairwise correlations (Pearson and Cramer's V) |
+| `BasicStatistics` | Comparison of mean, std, and median per column |
+
+### Fidelity & Utility Metrics
+| Metric | What it measures |
+|---|---|
+| `DiscriminatorMetric` | Trains a classifier to distinguish real from synthetic — score near 0.5 is best |
+| `MLEfficiency` | Trains on synthetic, tests on real — measures downstream task utility |
+
+### Privacy Metrics
+| Metric | What it measures |
+|---|---|
+| `DistanceToClosestRecord` | Distance from each synthetic record to its nearest real neighbor |
+| `kAnonymization` | Minimum equivalence class size (higher = better privacy) |
+| `lDiversity` | Diversity of sensitive attribute values within groups |
+| `IdentifiabilityScore` | Risk of linking a synthetic record back to a specific real individual |
+| `DeltaPresence` | Fraction of real records that have a near-exact synthetic match |
+| `MembershipInference` | Simulated attack: can an adversary detect training set members? |
+
+## GReaT Citation
 
 If you use GReaT, please link or cite our work:
 

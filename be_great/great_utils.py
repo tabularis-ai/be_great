@@ -155,7 +155,7 @@ def _get_random_missing(row):
     return np.random.choice(nans) if len(nans) > 0 else None
 
 
-def _partial_df_to_promts(partial_df: pd.DataFrame, float_precision=None):
+def _partial_df_to_prompts(partial_df: pd.DataFrame, float_precision=None):
     """Convert DataFrame with missingvalues to a list of starting promts for GReaT
         Args:
         partial_df: Pandas DataFrame to be imputed where missing values are encoded by NaN.
