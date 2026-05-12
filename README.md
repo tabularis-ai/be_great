@@ -138,7 +138,7 @@ synthetic_data = model.sample(
 
 Supported operators for numeric columns: `>=`, `<=`, `>`, `<`, `==`, `!=`. For categorical columns: `==`, `!=` (quote values with single quotes, e.g. `"== 'Female'"`). Multiple conditions can be combined in a single call. Guided sampling is enabled automatically when conditions are provided.
 
-## Mock Data Generation (no real data needed)
+## GReaT Mock Data Generation with LLM (no real data needed)
 
 Generate synthetic rows from a **declarative schema** — no `fit()`, no training data. Useful for privacy-safe dummy data, test fixtures, dev environments, and schema prototyping. Works best when paired with a tabular-pretrained LLM such as [`tabularisai/Qwen3-0.3B-distil`](https://huggingface.co/tabularisai/Qwen3-0.3B-distil).
 
