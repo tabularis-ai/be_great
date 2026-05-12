@@ -188,8 +188,10 @@ def _enumerate_numeric(
     col_min = col_stats["min"]
     col_max = col_stats["max"]
 
-    # Determine precision
-    if float_precision is not None:
+    # Determine precision: per-column override > model-level > inferred
+    if col_stats.get("precision") is not None:
+        prec = int(col_stats["precision"])
+    elif float_precision is not None:
         prec = float_precision
     else:
         prec = _infer_precision(col_min, col_max)
@@ -311,6 +313,72 @@ def build_trie(valid_values: tp.List[str], tokenizer) -> TokenPrefixTrie:
 # LogitsProcessor for constrained decoding
 # ---------------------------------------------------------------------------
 
+def compute_value_weights(
+    col_stats: dict,
+    valid_values: tp.List[str],
+) -> tp.Optional[tp.Dict[str, float]]:
+    """Compute a weight for each valid value from the schema's distribution hints.
+
+    Numeric columns: if ``col_stats`` has ``dist="normal"`` with ``mean`` and
+    ``std``, returns ``{value_str: pdf(float(value), mean, std)}``.
+    Categorical columns: if ``col_stats`` has ``weights`` mapping category
+    name to weight, returns those weights.
+
+    Returns ``None`` when no distribution hints are present (caller should
+    skip biasing).
+    """
+    if col_stats["type"] == "numeric":
+        dist = col_stats.get("dist")
+        if dist != "normal":
+            return None
+        mean = float(col_stats.get("mean", 0.0))
+        std = float(col_stats.get("std", 1.0))
+        if std <= 0:
+            return None
+        weights = {}
+        for v_str in valid_values:
+            try:
+                v = float(v_str)
+            except ValueError:
+                continue
+            # Unnormalized normal pdf (constant factor cancels in log-bias diff)
+            z = (v - mean) / std
+            weights[v_str] = float(np.exp(-0.5 * z * z))
+        return weights or None
+    else:
+        wmap = col_stats.get("weights")
+        if not wmap:
+            return None
+        return {v: float(wmap.get(v, 0.0)) for v in valid_values}
+
+
+def first_token_log_bias(
+    valid_values: tp.List[str],
+    value_weights: tp.Dict[str, float],
+    tokenizer,
+) -> tp.Dict[int, float]:
+    """Aggregate per-value weights into a log-bias on the first generated token.
+
+    Values that tokenize to the same first token share their weight. Returns
+    ``{first_token_id: log(sum_of_weights)}`` so a LogitsProcessor can simply
+    add the bias to the matching token's logit.
+    """
+    token_weight: tp.Dict[int, float] = {}
+    for v in valid_values:
+        ids = tokenizer.encode(f" {v}", add_special_tokens=False)
+        if not ids:
+            continue
+        w = value_weights.get(v, 0.0)
+        if w <= 0:
+            continue
+        token_weight[ids[0]] = token_weight.get(ids[0], 0.0) + w
+    if not token_weight:
+        return {}
+    # Normalize relative to max so the bias is anchored at 0 for the strongest value
+    max_w = max(token_weight.values())
+    return {tid: float(np.log(w / max_w)) for tid, w in token_weight.items() if w > 0}
+
+
 class ConstrainedValueProcessor(LogitsProcessor):
     """LogitsProcessor that constrains generation to values in a prefix trie.
 
@@ -325,10 +393,17 @@ class ConstrainedValueProcessor(LogitsProcessor):
             the generated value starts).
     """
 
-    def __init__(self, trie: TokenPrefixTrie, tokenizer, prompt_length: int):
+    def __init__(
+        self,
+        trie: TokenPrefixTrie,
+        tokenizer,
+        prompt_length: int,
+        first_token_bias: tp.Optional[tp.Dict[int, float]] = None,
+    ):
         self.trie = trie
         self.tokenizer = tokenizer
         self.prompt_length = prompt_length
+        self.first_token_bias = first_token_bias or {}
 
         # Pre-compute delimiter token IDs
         self._delimiter_ids: tp.Set[int] = set()
@@ -384,5 +459,13 @@ class ConstrainedValueProcessor(LogitsProcessor):
                     if 0 <= tid < scores.shape[1]:
                         mask[tid] = 0.0
                 scores[i] = scores[i] + mask
+
+                # First-token bias: when generating the very first value token,
+                # add log-weight bias so the model is pulled toward values whose
+                # schema-declared distribution gives them more mass.
+                if len(generated) == 0 and self.first_token_bias:
+                    for tid, log_bias in self.first_token_bias.items():
+                        if tid in allowed and 0 <= tid < scores.shape[1]:
+                            scores[i, tid] = scores[i, tid] + log_bias
 
         return scores

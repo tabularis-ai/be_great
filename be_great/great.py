@@ -9,7 +9,8 @@ import fsspec
 import numpy as np
 import pandas as pd
 
-from tqdm import tqdm
+from chugchug.compat import tqdm
+from chugchug import Chug
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, TrainerCallback, LogitsProcessorList
@@ -28,6 +29,15 @@ from be_great.great_constrained import (
     enumerate_valid_values,
     build_trie,
     ConstrainedValueProcessor,
+    compute_value_weights,
+    first_token_log_bias,
+)
+from be_great.great_mock_datasets import (
+    populate_schema_state,
+    build_effective_conditions,
+    apply_null_probabilities,
+    build_few_shot_prefix,
+    set_global_seed,
 )
 from be_great.great_utils import (
     _array_to_dataframe,
@@ -37,6 +47,132 @@ from be_great.great_utils import (
     _partial_df_to_prompts,
     bcolors,
 )
+
+
+class ChugProgressCallback(TrainerCallback):
+    """🚂 chugchug-backed progress bar for HuggingFace Trainer.
+
+    Replaces HF's default tqdm `ProgressCallback` with a gradient bar that
+    auto-colors metrics (loss green when improving, red when worsening).
+    """
+
+    def __init__(self, gradient: str = "fire", desc: str = "Training"):
+        self.gradient = gradient
+        self.desc = desc
+        self.bar: tp.Optional[Chug] = None
+        self._last_step = 0
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        total = state.max_steps if state.max_steps and state.max_steps > 0 else None
+        self.bar = Chug(total=total, desc=self.desc, gradient=self.gradient, unit="step")
+        self._last_step = 0
+        return control
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.bar is None:
+            return control
+        delta = state.global_step - self._last_step
+        if delta > 0:
+            self.bar.update(delta)
+            self._last_step = state.global_step
+        return control
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if self.bar is None or not logs:
+            return control
+        metrics = {}
+        if "loss" in logs:
+            metrics["loss"] = f"{logs['loss']:.4f}"
+        if "learning_rate" in logs:
+            metrics["lr"] = f"{logs['learning_rate']:.2e}"
+        if "epoch" in logs:
+            metrics["epoch"] = f"{logs['epoch']:.2f}"
+        if metrics:
+            self.bar.set_metrics(**metrics)
+        return control
+
+    def on_train_end(self, args, state, control, **kwargs):
+        if self.bar is not None:
+            self.bar.close()
+            self.bar = None
+        return control
+
+
+class LiveQualityCallback(TrainerCallback):
+    """Live synthesis-quality eval during training.
+
+    Periodically samples from the (in-training) model, compares the sample
+    against a held-out evaluation set using ``ColumnShapes`` similarity
+    (1.0 = identical distributions, 0.0 = totally different), and pushes
+    the score into the chugchug progress bar as ``quality=…``.
+
+    Args:
+        great_model: The owning ``GReaT`` instance (needed for ``.sample()``).
+        eval_data: Held-out ``pd.DataFrame`` used as the comparison target.
+        chug_callback: The ``ChugProgressCallback`` whose bar should receive
+            the live ``quality`` metric.
+        eval_every: If ``None`` (default), evaluate once at the end of each
+            epoch. If an int, evaluate every N training steps.
+        eval_n_samples: Number of synthetic rows to draw per evaluation.
+            Larger = more stable score, slower. Default 50.
+        max_length: Max generation length per row. Default 100.
+    """
+
+    def __init__(
+        self,
+        great_model,
+        eval_data: pd.DataFrame,
+        chug_callback: ChugProgressCallback,
+        eval_every: tp.Optional[int] = None,
+        eval_n_samples: int = 50,
+        max_length: int = 100,
+    ):
+        from be_great.metrics import ColumnShapes  # lazy: avoid import cycles
+        self.great = great_model
+        self.eval_data = eval_data
+        self.chug_cb = chug_callback
+        self.eval_every = eval_every
+        self.eval_n_samples = eval_n_samples
+        self.max_length = max_length
+        self._metric = ColumnShapes()
+
+    def _evaluate(self, step: int):
+        was_training = self.great.model.training
+        try:
+            self.great.model.eval()
+            current_device = next(self.great.model.parameters()).device
+            # Sync GReaT.device with reality so sample() does not move the model
+            self.great.device = current_device
+            with torch.no_grad():
+                synth = self.great.sample(
+                    n_samples=self.eval_n_samples,
+                    max_length=self.max_length,
+                    k=min(self.eval_n_samples, 20),
+                    device=str(current_device),
+                )
+            result = self._metric.compute(self.eval_data, synth)
+            score = float(result.get("column_shapes_mean", 0.0))
+            if self.chug_cb is not None and self.chug_cb.bar is not None:
+                # Short key to fit narrow terminals (q = column_shapes_mean)
+                self.chug_cb.bar.set_metrics(q=f"{score:.3f}")
+            print(f"  🎯 [quality @ step {step}]  column_shapes_mean = {score:.4f}", flush=True)
+        except Exception as e:
+            logging.warning(f"LiveQuality eval failed at step {step}: {e}")
+        finally:
+            if was_training:
+                self.great.model.train()
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.eval_every is None:
+            return control
+        if state.global_step > 0 and state.global_step % self.eval_every == 0:
+            self._evaluate(state.global_step)
+        return control
+
+    def on_epoch_end(self, args, state, control, **kwargs):
+        if self.eval_every is None:
+            self._evaluate(state.global_step)
+        return control
 
 
 class RandomConditionalColumnCallback(TrainerCallback):
@@ -150,6 +286,22 @@ class GReaT:
 
         # Per-column statistics for constrained sampling
         self.col_stats = None
+
+    def __repr__(self) -> str:
+        fitted = self.columns is not None
+        if fitted:
+            cols_info = (
+                f"fitted on {len(self.columns)} cols "
+                f"({len(self.num_cols)} num, {len(self.columns) - len(self.num_cols)} cat)"
+            )
+        else:
+            cols_info = "unfitted"
+        device = str(self.device) if self.device is not None else "unresolved"
+        peft = ", peft=lora" if self.efficient_finetuning == "lora" else ""
+        return (
+            f"GReaT(llm={self.llm!r}, epochs={self.epochs}, "
+            f"batch_size={self.batch_size}, {cols_info}, device={device}{peft})"
+        )
 
     # ------------------------------------------------------------------
     # LoRA helpers
@@ -269,12 +421,36 @@ class GReaT:
         """Resolve and cache the compute device, moving the model if needed.
 
         Args:
-            device: Requested device string (e.g. "cuda", "cpu", "cuda:0").
+            device: Requested device string. Use ``"auto"`` to pick the best
+                available backend (CUDA > MPS > CPU). Other accepted values:
+                ``"cuda"``, ``"cuda:N"``, ``"mps"``, ``"cpu"``. If a requested
+                accelerator is unavailable, falls back to CPU with a warning.
 
         Returns:
             torch.device that the model is now on.
         """
-        resolved = torch.device(device if torch.cuda.is_available() or device == "cpu" else "cpu")
+        cuda_ok = torch.cuda.is_available()
+        mps_ok = getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available()
+
+        if device == "auto":
+            if cuda_ok:
+                resolved = torch.device("cuda")
+            elif mps_ok:
+                resolved = torch.device("mps")
+            else:
+                resolved = torch.device("cpu")
+            logging.info(f"Auto-detected device: {resolved}")
+        elif device.startswith("cuda"):
+            resolved = torch.device(device if cuda_ok else "cpu")
+            if not cuda_ok:
+                logging.warning(f"CUDA requested but not available — falling back to CPU.")
+        elif device == "mps":
+            resolved = torch.device("mps" if mps_ok else "cpu")
+            if not mps_ok:
+                logging.warning("MPS requested but not available — falling back to CPU.")
+        else:
+            resolved = torch.device(device)
+
         if self.device != resolved:
             self.device = resolved
             self.model.to(self.device)
@@ -288,6 +464,9 @@ class GReaT:
         conditional_col: tp.Optional[str] = None,
         resume_from_checkpoint: tp.Union[bool, str] = False,
         random_conditional_col: bool = True,
+        eval_data: tp.Optional[pd.DataFrame] = None,
+        eval_every: tp.Optional[int] = None,
+        eval_n_samples: int = 50,
     ) -> GReaTTrainer:
         """Fine-tune GReaT using tabular data.
 
@@ -301,6 +480,12 @@ class GReaT:
             If path, resumes the training from the given checkpoint (has to be a valid HuggingFace checkpoint!)
             random_conditional_col: If True, a different random column will be selected for preconditioning
             in each epoch. This helps prevent any single column from being overfitted during training.
+            eval_data: Optional held-out DataFrame for live synthesis-quality eval. When provided, a
+                ``column_shapes_mean`` similarity score is computed periodically and shown live in the
+                chugchug progress bar as ``quality=…`` (1.0 = real vs synthetic indistinguishable).
+            eval_every: If ``None`` (default), live eval runs at the end of every epoch. If an int,
+                live eval runs every N training steps. Ignored if ``eval_data is None``.
+            eval_n_samples: Number of synthetic rows to draw per live-eval call. Default 50.
 
         Returns:
             GReaTTrainer used for the fine-tuning process
@@ -316,18 +501,38 @@ class GReaT:
 
         # Set training hyperparameters
         logging.info("Create GReaT Trainer...")
+        # Disable HF's default tqdm so chugchug owns the progress bar
+        # (user can override by passing disable_tqdm=False in train_kwargs)
+        self.train_hyperparameters.setdefault("disable_tqdm", True)
+        # pin_memory only helps CUDA; disable on MPS/CPU to silence the warning
+        if not torch.cuda.is_available():
+            self.train_hyperparameters.setdefault("dataloader_pin_memory", False)
+
         training_args = TrainingArguments(
             self.experiment_dir,
             num_train_epochs=self.epochs,
             per_device_train_batch_size=self.batch_size,
             **self.train_hyperparameters,
         )
-        
+
         # Set up callbacks
-        callbacks = []
+        chug_cb = ChugProgressCallback()
+        callbacks = [chug_cb]
         if random_conditional_col:
             logging.info("Random conditional column enabled. Will randomly select a different column for each epoch.")
             callbacks.append(RandomConditionalColumnCallback(self, df))
+        if eval_data is not None:
+            logging.info(
+                f"Live quality eval enabled (n_samples={eval_n_samples}, "
+                f"every={'epoch' if eval_every is None else f'{eval_every} steps'})."
+            )
+            callbacks.append(LiveQualityCallback(
+                great_model=self,
+                eval_data=eval_data,
+                chug_callback=chug_cb,
+                eval_every=eval_every,
+                eval_n_samples=eval_n_samples,
+            ))
         
         great_trainer = GReaTTrainer(
             self.model,
@@ -343,6 +548,75 @@ class GReaT:
         great_trainer.train(resume_from_checkpoint=resume_from_checkpoint)
         return great_trainer
 
+    def mock(
+        self,
+        schema: tp.Dict[str, tp.Dict[str, tp.Any]],
+        n_samples: int = 10,
+        conditions: tp.Optional[tp.Dict[str, str]] = None,
+        examples: tp.Optional[tp.Sequence[tp.Mapping[str, tp.Any]]] = None,
+        seed: tp.Optional[int] = None,
+        temperature: float = 0.7,
+        max_length: int = 100,
+        device: str = "auto",
+        random_feature_order: bool = True,
+        conditional_col: tp.Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Generate mock tabular data **without fitting on real data**.
+
+        Provide a schema describing the columns; GReaT will populate the internal
+        state that ``fit()`` normally builds, then run guided/constrained sampling
+        through the existing pipeline. Useful for privacy-safe dummy data, test
+        fixtures, and schema prototyping. Works best when ``llm`` is a model already
+        pre-trained on tabular GReaT-format rows (e.g. ``tabularisai/Qwen3-0.3B-distil``).
+
+        Args:
+            schema: Dict mapping ``column_name -> spec_dict``. Specs:
+                - Numerical: ``{"type": "num", "range": (min, max)}``
+                - Categorical: ``{"type": "cat", "values": ["A", "B", ...]}``
+                Optional per-column: ``integer``, ``precision``, ``dist`` +
+                ``mean`` + ``std`` (numeric), ``weights`` (categorical),
+                ``null_prob`` (both).
+            n_samples: Number of mock rows to generate.
+            conditions: Optional ``{col: condition_string}``, e.g.
+                ``{"age": ">= 40", "sex": "!= 'Male'"}``. Same syntax as ``sample()``.
+            examples: Optional list of dict rows used as few-shot context.
+                Each row is formatted as a GReaT-style example and prepended to
+                the generation prompt. Improves realism for non-tabular-pretrained
+                LLMs (e.g. vanilla GPT-2). Two to five rows is usually plenty.
+            seed: If set, seeds ``random``, ``numpy``, and ``torch`` so the
+                generated DataFrame is reproducible across runs.
+            temperature: Generation temperature.
+            max_length: Max tokens per row.
+            device: ``"auto"`` (default) picks CUDA > MPS > CPU.
+            random_feature_order: Randomize feature order per row when sampling.
+            conditional_col: Which column to use as the generation starting point.
+                Defaults to the last column in the schema.
+
+        Returns:
+            pd.DataFrame with ``n_samples`` rows matching the schema. NaNs
+            appear in any column whose schema declared ``null_prob > 0``.
+        """
+        rng = set_global_seed(seed) if seed is not None else np.random.default_rng()
+
+        populate_schema_state(self, schema, conditional_col=conditional_col)
+        effective_conditions = build_effective_conditions(self.col_stats, conditions)
+        few_shot_prefix = build_few_shot_prefix(examples or [], self.columns)
+        if few_shot_prefix:
+            logging.info(
+                f"Using {len(examples)} few-shot example row(s) as prompt prefix."
+            )
+
+        df = self._guided_sample(
+            n_samples=n_samples,
+            temperature=temperature,
+            max_length=max_length,
+            device=device,
+            random_feature_order=random_feature_order,
+            conditions=effective_conditions,
+            examples_prefix=few_shot_prefix,
+        )
+        return apply_null_probabilities(df, self.col_stats, rng=rng)
+
     def sample(
         self,
         n_samples: int,
@@ -352,7 +626,7 @@ class GReaT:
         k: int = 100,
         max_length: int = 100,
         drop_nan: bool = False,
-        device: str = "cuda",
+        device: str = "auto",
         guided_sampling: bool = False,
         random_feature_order: bool = True,
         conditions: tp.Optional[tp.Dict[str, str]] = None,
@@ -373,7 +647,8 @@ class GReaT:
             k (int): Sampling batch size. Higher values speed up the generation process.
             max_length (int): Maximum number of tokens to generate. Ensure it's long enough to not cut off any information.
             drop_nan (bool): Whether to drop rows with NaN values. Defaults to False.
-            device (str): Device to use for generation. Set to "cpu" to avoid using GPU. Specific GPU can also be named.
+            device (str): Device to use for generation. Defaults to "auto" (picks cuda > mps > cpu).
+                Set to "cpu", "cuda", "cuda:N", or "mps" to force a specific device.
             guided_sampling (bool): Whether to use guided feature-by-feature sampling (True) or the legacy approach (False).
                 Note that guided sampling may be slower but can be more reliable for certain datasets.
             random_feature_order (bool): Whether to randomize feature order for each sample in guided sampling.
@@ -434,9 +709,10 @@ class GReaT:
         n_samples: int = 10,
         temperature: float = 0.7,
         max_length: int = 100,
-        device: str = "cuda",
+        device: str = "auto",
         random_feature_order: bool = True,
         conditions: tp.Optional[tp.Dict[str, str]] = None,
+        examples_prefix: str = "",
     ) -> pd.DataFrame:
         """
         Generate synthetic data with guided feature name prompting.
@@ -445,7 +721,7 @@ class GReaT:
             n_samples (int): Number of samples to generate
             temperature (float): Temperature for sampling
             max_length (int): Maximum length of generated tokens
-            device (str): Device to use for generation
+            device (str): Device to use for generation. Defaults to "auto" (picks cuda > mps > cpu).
             random_feature_order (bool): Whether to randomize feature order for each sample
             conditions (dict, optional): Dictionary mapping column names to condition strings.
 
@@ -470,6 +746,7 @@ class GReaT:
 
         # Pre-build tries for constrained columns (cached, not rebuilt per sample)
         constraint_tries = {}
+        first_token_biases: tp.Dict[str, tp.Dict[int, float]] = {}
         if conditions:
             for col, cond_str in conditions.items():
                 op, threshold = parse_condition(cond_str)
@@ -481,6 +758,16 @@ class GReaT:
                     f"Built constraint trie for {col!r} ({cond_str}): "
                     f"{len(valid_values)} valid values"
                 )
+                # Compute first-token bias from schema dist/weights (if any)
+                v_weights = compute_value_weights(self.col_stats[col], valid_values)
+                if v_weights:
+                    first_token_biases[col] = first_token_log_bias(
+                        valid_values, v_weights, self.tokenizer
+                    )
+                    logging.info(
+                        f"Applied first-token bias for {col!r} from schema "
+                        f"({self.col_stats[col].get('dist') or 'weights'})"
+                    )
 
         synthetic_data = []
 
@@ -495,8 +782,9 @@ class GReaT:
                     if random_feature_order:
                         random.shuffle(feature_names)
 
-                    # Start with empty sample
-                    sample_text = ""
+                    # Few-shot example rows prepended as in-context demonstrations.
+                    # When empty (the normal sample() path) this is a no-op.
+                    sample_text = examples_prefix
                     sample_values = {}
 
                     # For each feature
@@ -515,6 +803,7 @@ class GReaT:
                                 trie=constraint_tries[feature],
                                 tokenizer=self.tokenizer,
                                 prompt_length=prompt_length,
+                                first_token_bias=first_token_biases.get(feature),
                             )
                             logits_processor = LogitsProcessorList([processor])
 
@@ -558,20 +847,21 @@ class GReaT:
                         generated_text = self.tokenizer.decode(output[0], skip_special_tokens=True)
                         raw_value = generated_text[len(prompt):].strip()
 
-                        # Clean up the value (improved parsing)
-                        # First check for semicolon
-                        if ";" in raw_value:
-                            value = raw_value.split(";")[0].strip()
+                        # Truncate at the EARLIEST delimiter (not just ';'). Otherwise
+                        # values like "Female, age is 73;" keep their trailing garbage
+                        # because ';' splits after the comma.
+                        # For numerical columns we don't treat '.' as a delimiter
+                        # (decimals); for cat columns '.' is a sentence boundary.
+                        if feature in self.num_cols:
+                            delims = [";", ",", "\n"]
                         else:
-                            # Split on common delimiters and take the first valid token
-                            # Try different delimiters in order of preference
-                            for delimiter in [",", ".", "\n", " "]:
-                                if delimiter in raw_value:
-                                    value = raw_value.split(delimiter)[0].strip()
-                                    break
-                            else:
-                                # If no delimiters found, use the whole string but truncate if too long
-                                value = raw_value[:30].strip()
+                            delims = [";", ",", ".", "\n"]
+                        earliest = len(raw_value)
+                        for d in delims:
+                            idx = raw_value.find(d)
+                            if idx != -1 and idx < earliest:
+                                earliest = idx
+                        value = raw_value[:earliest].strip() if earliest < len(raw_value) else raw_value[:30].strip()
 
                         # Clean up any trailing non-alphanumeric characters
                         while value and not (value[-1].isalnum() or value[-1] in ['.', '-']):
@@ -644,7 +934,7 @@ class GReaT:
         k: int = 100,
         max_length: int = 100,
         drop_nan: bool = False,
-        device: str = "cuda",
+        device: str = "auto",
     ) -> pd.DataFrame:
         """
         Legacy method for generating synthetic tabular data samples.
@@ -662,7 +952,8 @@ class GReaT:
             k (int): Sampling batch size. Higher values speed up the generation process.
             max_length (int): Maximum number of tokens to generate. Ensure it's long enough to not cut off any information.
             drop_nan (bool): Whether to drop rows with NaN values. Defaults to False.
-            device (str): Device to use for generation. Set to "cpu" to avoid using GPU. Specific GPU can also be named.
+            device (str): Device to use for generation. Defaults to "auto" (picks cuda > mps > cpu).
+                Set to "cpu", "cuda", "cuda:N", or "mps" to force a specific device.
 
         Returns:
             pd.DataFrame: DataFrame containing n_samples rows of generated data.
@@ -773,7 +1064,7 @@ class GReaT:
         starting_prompts: tp.Union[str, list[str]],
         temperature: float = 0.7,
         max_length: int = 100,
-        device: str = "cuda",
+        device: str = "auto",
     ) -> pd.DataFrame:
         """Generate synthetic tabular data samples conditioned on a given input.
 
@@ -786,7 +1077,7 @@ class GReaT:
              See this blog article (https://huggingface.co/blog/how-to-generate) to read more about the generation
              process.
             max_length: Maximal number of tokens to generate - has to be long enough to not cut any information
-            device: Set to "cpu" if the GPU should not be used. You can also specify the concrete GPU.
+            device: Defaults to "auto" (picks cuda > mps > cpu). Set to "cpu", "cuda", "cuda:N", or "mps" to force a specific device.
 
          Returns:
             Pandas DataFrame with synthetic data generated based on starting_prompts
@@ -835,7 +1126,7 @@ class GReaT:
         k: int = 100,
         max_length: int = 100,
         max_retries=15,
-        device: str = "cuda",
+        device: str = "auto",
     ) -> pd.DataFrame:
         """Impute a DataFrame with missing values using a trained GReaT model.
         Args:
@@ -849,7 +1140,7 @@ class GReaT:
              process
             k: Sampling Batch Size. Set as high as possible. Speeds up the generation process significantly
             max_length: Maximal number of tokens to generate - has to be long enough to not cut any information!
-            device: Set to "cpu" if the GPU should not be used. You can also specify the specific GPU to run on.
+            device: Defaults to "auto" (picks cuda > mps > cpu). Set to "cpu", "cuda", "cuda:N", or "mps" to force a specific device.
 
         Returns:
             Pandas DataFrame with n_samples rows of generated data

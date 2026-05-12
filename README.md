@@ -138,6 +138,50 @@ synthetic_data = model.sample(
 
 Supported operators for numeric columns: `>=`, `<=`, `>`, `<`, `==`, `!=`. For categorical columns: `==`, `!=` (quote values with single quotes, e.g. `"== 'Female'"`). Multiple conditions can be combined in a single call. Guided sampling is enabled automatically when conditions are provided.
 
+## Mock Data Generation (no real data needed)
+
+Generate synthetic rows from a **declarative schema** — no `fit()`, no training data. Useful for privacy-safe dummy data, test fixtures, dev environments, and schema prototyping. Works best when paired with a tabular-pretrained LLM such as [`tabularisai/Qwen3-0.3B-distil`](https://huggingface.co/tabularisai/Qwen3-0.3B-distil).
+
+```python
+from be_great import GReaT
+from be_great.great_mock_datasets import save_schema, load_schema
+
+schema = {
+    "age":            {"type": "num", "range": (18, 99), "integer": True,
+                       "dist": "normal", "mean": 38, "std": 13, "null_prob": 0.05},
+    "hours-per-week": {"type": "num", "range": (0, 80), "integer": True},
+    "sex":            {"type": "cat", "values": ["Male", "Female", "Other"],
+                       "weights": [0.5, 0.45, 0.05]},
+    "income":         {"type": "cat", "values": ["<=50K", ">50K"],
+                       "weights": [0.76, 0.24]},
+}
+
+# Optional: persist/share the schema
+save_schema(schema, "adult_schema.json")          # or .yaml
+schema = load_schema("adult_schema.json")
+
+model = GReaT(llm="tabularisai/Qwen3-0.3B-distil")
+mock = model.mock(
+    schema=schema,
+    n_samples=100,
+    conditions={"age": ">= 40", "sex": "!= 'Male'"},   # same syntax as sample()
+    examples=[                                          # few-shot rows for realism
+        {"age": 35, "sex": "Female", "income": "<=50K"},
+        {"age": 52, "sex": "Male",   "income": ">50K"},
+    ],
+    seed=42,                                            # reproducible across runs
+)
+```
+
+Schema features:
+
+- **Per-column types**: `"num"` with `range`, plus optional `integer`, `precision`, `dist="normal"` + `mean` + `std`. `"cat"` with `values` and optional `weights` (list or dict).
+- **`null_prob`** (0–1) injects realistic missing values per column after generation.
+- **`conditions=`** uses the same operator vocabulary as `sample()` — they tighten the schema's implicit constraints.
+- **`examples=`** prepends few-shot demonstration rows to the prompt — big realism boost for LLMs that don't natively know the GReaT row format.
+- **`seed=`** makes the entire output deterministic.
+- **`save_schema` / `load_schema`** support JSON and YAML for sharing schemas across teams or environments.
+
 ## Efficient Fine-Tuning with LoRA
 
 GReaT supports LoRA (Low-Rank Adaptation) for parameter-efficient fine-tuning. This drastically reduces memory usage and training time, making it possible to fine-tune larger models on consumer hardware.
@@ -177,6 +221,26 @@ model = GReaT(
 )
 model.fit(data)
 ```
+
+## Live Quality Monitoring During Training
+
+Pass a held-out evaluation set to `fit()` to track synthesis quality **as the model trains** — no need to wait for training to finish. After each epoch (or every N steps), GReaT samples from the in-training model, scores it against `eval_data` using `ColumnShapes` similarity, and shows the score live in the [chugchug](https://github.com/unnir/chugchug) progress bar.
+
+```python
+from sklearn.model_selection import train_test_split
+
+train_df, eval_df = train_test_split(data, test_size=0.2, random_state=42)
+
+model = GReaT(llm="distilgpt2", epochs=10, batch_size=32)
+model.fit(
+    train_df,
+    eval_data=eval_df,      # held-out comparison set
+    eval_n_samples=50,      # synth rows drawn per evaluation (default 50)
+    eval_every=None,        # None = end of every epoch; int = every N steps
+)
+```
+
+You'll see `q=0.612` appear in the chugchug bar (alongside `loss=…`, `lr=…`, `epoch=…`) plus a printed line `🎯 [quality @ step N] column_shapes_mean = 0.XXXX` after each evaluation. `column_shapes_mean` lives in `[0, 1]`; closer to **1.0** means the synthetic marginal distributions are indistinguishable from the real ones. Sampling during training is the cost driver — keep `eval_n_samples` small (20–50) for fast feedback, larger for a more stable score.
 
 ## GReaT Metrics
 

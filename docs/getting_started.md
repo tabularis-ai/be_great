@@ -101,6 +101,38 @@ synthetic_data = model.sample(n_samples=100)
 
 Target modules are auto-detected for common architectures (GPT-2, LLaMA, Falcon, etc.), or can be specified explicitly via `lora_config["target_modules"]`.
 
+### Live Quality Monitoring During Training
+
+Pass a held-out `eval_data` DataFrame to `fit()` to monitor synthesis quality **while training is still running**. After each epoch (or every N steps), GReaT samples from the in-training model, compares the sample against `eval_data` using `ColumnShapes` similarity (KS test for numerical columns, Total Variation Distance for categorical), and shows the score live in the [chugchug](https://github.com/unnir/chugchug) progress bar as `q=…`. A printed line `🎯 [quality @ step N] column_shapes_mean = 0.XXXX` is also emitted after every evaluation.
+
+```python
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from be_great import GReaT
+
+df = load_iris(as_frame=True).frame
+train_df, eval_df = train_test_split(df, test_size=0.3, random_state=42)
+
+model = GReaT(llm="distilgpt2", epochs=5, batch_size=8)
+model.fit(
+    train_df,
+    eval_data=eval_df,        # held-out comparison set
+    eval_n_samples=50,        # synth rows drawn per evaluation
+    eval_every=None,          # None = once per epoch; int = every N training steps
+)
+```
+
+Score interpretation: `column_shapes_mean` is in `[0, 1]`. **1.0** means the synthetic and real marginal distributions are indistinguishable; values close to 0 mean very different distributions. Watch it climb across epochs — that's your training signal beyond raw loss.
+
+Tips:
+- Sampling during evaluation is the cost driver. Keep `eval_n_samples` small (20–50) for fast feedback, larger (100–200) for a more stable score.
+- The model is automatically set to `eval()` during evaluation and restored to `train()` after; the optimizer is not disturbed.
+- On Apple Silicon (MPS) the model stays on MPS during eval — no device thrashing.
+
+### Auto Device Selection (CUDA / MPS / CPU)
+
+`sample()`, `impute()`, and all generation methods default to `device="auto"`, which picks CUDA when available, then Apple's MPS, then CPU. You can still pin a specific device when you need to: `model.sample(n_samples=100, device="cpu")` or `device="cuda:1"`.
+
 ### Evaluating Synthetic Data
 
 After generating synthetic data, use the built-in metrics to measure quality and privacy:
