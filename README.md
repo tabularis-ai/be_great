@@ -300,5 +300,4 @@ If you use GReaT, please link or cite our work:
 
 ## Custom Synthetic Data
 
-Need synthetic data for your business? We can help!
-Contact us at info@tabularis.ai for custom data generation services.
+Need synthetic data for your data? drop me a message: https://unnir.github.io/
